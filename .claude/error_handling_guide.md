@@ -233,7 +233,7 @@ func (s *SignupService) Signup(ctx context.Context, email string) error {
     if err != nil {
         // Domain returned its own AppError; add use-case context.
         if appErr := (*apperror.AppError)(nil); errors.As(err, &appErr) {
-            appErr.AddErrCtx("during user.signup")
+            appErr.AddNote("during user.signup")
         }
         return err
     }
@@ -244,7 +244,7 @@ func (s *SignupService) Signup(ctx context.Context, email string) error {
 }
 ```
 
-**Add use-case context with `AddErrCtx`** — but only when adding context
+**Add use-case context with `AddNote`** — but only when adding context
 to the SAME error, not when creating a new error event. See §4.3.
 
 **Forbidden in application**:
@@ -432,7 +432,7 @@ client-safe `Message`.
 
 ### 4.1 Adding context as an error propagates up
 
-Use `AddErrCtx` when the SAME error is propagated up and you want to add
+Use `AddNote` when the SAME error is propagated up and you want to add
 upstream context to its message (no new chain layer):
 
 ```go
@@ -440,7 +440,7 @@ err := repo.FindUser(id)
 if err != nil {
     var appErr *apperror.AppError
     if errors.As(err, &appErr) {
-        appErr.AddErrCtx("loading user during checkout")
+        appErr.AddNote("loading user during checkout")
     }
     return err
 }
@@ -467,11 +467,11 @@ if err != nil {
 
 `WithCause` preserves the original via `errors.Is`/`errors.As`.
 
-### 4.3 When to use AddErrCtx vs `fmt.Errorf %w`
+### 4.3 When to use AddNote vs `fmt.Errorf %w`
 
 | Goal | Tool |
 |---|---|
-| Same error, more context, keep `*AppError` type | `appErr.AddErrCtx("...")` |
+| Same error, more context, keep `*AppError` type | `appErr.AddNote("...")` |
 | New error event, different semantics, grow chain | `fmt.Errorf("ctx: %w", err)` (then consumers `errors.As` to find the inner) |
 | Wrap a non-AppError into an AppError | A factory + `WithCause(err)` |
 
@@ -625,7 +625,7 @@ need service-specific overrides for in-body error codes.
 
 3. **Do NOT use `\n` in error messages.** Log aggregators split on
    newlines and break a single error into multiple log events. Keep
-   messages single-line; the `" -> "` separator from `AddErrCtx` is the
+   messages single-line; the `" -> "` separator from `AddNote` is the
    right tool for multi-layer context.
 
 4. **Do NOT create a RemoteError for a transport-layer failure.**
@@ -676,7 +676,7 @@ need service-specific overrides for in-body error codes.
 DOMAIN LAYER         → AppError only; codes: NotFound, AlreadyExists,
                         FailedPrecondition, OutOfRange, IllegalState,
                         IllegalArg
-APPLICATION LAYER    → AppError (propagates or constructs); AddErrCtx for
+APPLICATION LAYER    → AppError (propagates or constructs); AddNote for
                         upstream context; no protocol translation
 DRIVEN ADAPTER       → AppError for transport failures
                        RemoteError for server-responded failures
@@ -686,7 +686,7 @@ INTERFACES LAYER     → errors.As to *RemoteError / *AppError, map to wire
 
 Construction         → per-Code factory(event, opts...) +
                        WithMessage / WithCase / WithCause / WithDetails
-Propagation          → AddErrCtx for same error; fmt.Errorf %w for new layer
+Propagation          → AddNote for same error; fmt.Errorf %w for new layer
 Cross-cutting        → branch on appErr.Code() / remoteErr.Canonical.Code()
                        NOT on errors.As(err, &appErr) when going through
                        a RemoteError (Canonical is parallel, not on chain)
