@@ -12,8 +12,8 @@ import (
 // environment without re-wiring constructors.
 func providePasswordHasher(c *dig.Container) error {
 	return c.Provide(
-		func(cfg Config) *passwordhash.BcryptHasher {
-			return passwordhash.NewBcryptHasher(cfg.BcryptCost)
+		func(cfg Config) *passwordhash.PasswordHasher {
+			return passwordhash.NewPasswordHasher(cfg.BcryptCost)
 		},
 		dig.As(new(application.IPasswordHasher)),
 	)
