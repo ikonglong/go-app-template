@@ -59,7 +59,7 @@ Defaults injected:
   -source=postgres
   -dsn=<built from .env>
   -schema=public
-  -path=./internal/adapter/out/db/gen
+  -path=./internal/adapter/repo/jet/gen
   -rel-model-path=./record
   -ignore-tables=goose_db_version
 
@@ -103,10 +103,10 @@ defaults=(
     -source=postgres
     -dsn="$DSN"
     -schema=public
-    -path=./internal/adapter/out/db/gen
+    -path=./internal/adapter/repo/jet/gen
     -rel-model-path=./record
 )
 $user_set_tables || defaults+=(-ignore-tables=goose_db_version)
 
-echo "Generating jet code: ${DB_LABEL} -> ./internal/adapter/out/db/gen"
+echo "Generating jet code: ${DB_LABEL} -> ./internal/adapter/repo/jet/gen"
 exec jet "${defaults[@]}" "$@"

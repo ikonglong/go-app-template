@@ -2,7 +2,7 @@
 
 ## Architectural Style
 
-Adopt ports & adapters architectural style:
+Adopt ports&adapters (Hexagonal) architectural style:
 
 - A port is an interface that acts as an entry and/or exit point, without consumers knowing the concrete implementation.
 - An adapter is a class that transforms a request to an application operation call, or adapts an external interface **in a broad sense** into an internal interface.

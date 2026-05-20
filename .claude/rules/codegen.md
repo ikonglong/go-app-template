@@ -5,6 +5,8 @@ paths:
 
 # DB Migrations & Code Generation
 
+> Scope: the **tooling** — applying migrations and regenerating jet code (`migrate.sh`, `gen.sh`). For how to write **safe migration SQL** (idempotent, non-blocking), see `.claude/db-migrations.md`.
+
 ## Migrations: `migrate.sh`
 
 Wraps [goose](https://github.com/pressly/goose). Reads connection from `.env` (`DATABASE__*` keys) and forwards remaining args to `goose`.
@@ -34,7 +36,7 @@ Wraps the [go-jet](https://github.com/go-jet/jet) generator. Same `.env` loading
 -source=postgres
 -dsn=<built from .env>
 -schema=public
--path=./internal/adapter/out/db/gen
+-path=./internal/adapter/repo/jet/gen
 -rel-model-path=./record           ← package name becomes "record" not "model"
 -ignore-tables=goose_db_version    ← suppresses the migration tracking table
 ```
@@ -48,4 +50,4 @@ Wraps the [go-jet](https://github.com/go-jet/jet) generator. Same `.env` loading
 1. Write a goose migration in `versions/`.
 2. `./db-migrations/migrate.sh up`
 3. `./db-migrations/gen.sh` — picks up the new table automatically; no edits to the script needed.
-4. Add the aggregate adapter in `internal/adapter/out/db/` (`xxx_repo.go`, `xxx_mapper.go`) and the matching domain types in `internal/domain/`. Follow `.claude/rules/persistence.md` and `.claude/rules/domain.md`.
+4. Add the aggregate adapter in `internal/adapter/repo/jet/` (`xxx_repo.go`, `xxx_mapper.go`) and the matching domain types in `internal/domain/`. Follow `.claude/rules/persistence.md` and `.claude/rules/domain.md`.

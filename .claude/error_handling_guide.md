@@ -3,73 +3,108 @@
 This guide tells you, Claude Code, how to handle errors when writing or
 modifying a Go application that:
 
-1. Adopts the ports-and-adapters architecture described in
-   `architecture.md` (Interfaces / Application / Domain layers, with
-   Driven Adapters and optional Infrastructure)
-2. Uses the `github.com/ikonglong/go-apperror` library as its error model
+1. Adopts the ports-and-adapters architecture described in `architecture.md`
+   (Interfaces / Application / Domain layers, with Driven Adapters and optional
+   Infrastructure).
+2. Uses the `github.com/ikonglong/go-apperror` library as its error model.
 
-Read this guide before constructing, wrapping, propagating, logging, or
-mapping any error. The rules here are normative — when a rule and a
-local convention disagree, the rule wins; flag the conflict to the user.
+Read this guide before constructing, wrapping, propagating, logging, or mapping
+any error. The rules here are normative — when a rule and a local convention
+disagree, the rule wins; flag the conflict to the user.
 
 ---
 
-## 1. Mental model: three error categories
+## 1. TL;DR
 
-Every error in the app falls into exactly one category. **You must
-identify which category an error is BEFORE writing code for it.**
+**Every error is one of three categories — the category picks the type:**
 
 | Category | Cause | Type to use |
 |---|---|---|
-| **App-domain error** | Validation, business rule violation, internal invariant broken, etc., originating in our app. | `*apperror.AppError` |
-| **Transport-layer failure** | We tried to call a remote service and **no response was received** (DNS resolution failed, TCP refused/reset, TLS handshake failed, request timed out before any bytes arrived). | `*apperror.AppError`, typically `NewUnavailable` or `NewTimeout`, with the transport error attached via `WithCause`. |
-| **Remote-service-responded failure** | We called a remote service and **the server returned a response** (any status code, in-band error envelope in the body, etc.). | `*apperror.RemoteError` |
+| **App-domain error** | Validation, business-rule violation, broken internal invariant — originating in our app. | `*apperror.AppError` |
+| **Transport-layer failure** | We called a remote service and **no response was received** (DNS failed, TCP refused/reset, TLS handshake failed, timed out before any bytes arrived). | `*apperror.AppError`, usually `NewUnavailable` / `NewTimeout`, transport error in `WithCause`. |
+| **Remote-service-responded failure** | We called a remote service and **the server returned a response** (any status code, in-band error envelope, etc.). | `*apperror.RemoteError` |
 
-Critical distinction: a transport failure is an `AppError`, **not** a
-`RemoteError`. RemoteError's existence is conditioned on having received
-a response.
+A transport failure is an `AppError`, **not** a `RemoteError` — a `RemoteError`
+exists only when a response was received.
+
+**Construct inward, translate only at the boundaries.** Errors are *constructed*
+in the inner layers (domain, application) and propagate outward largely
+untouched — annotate with `AddNote` / `%w`, but don't translate. Actual handling
+happens only at the two boundaries: the outbound driven adapter translates
+external failures into our error model (§3.3), and the inbound interface layer
+translates our errors into the wire response, logging and sanitizing what
+reaches the client (§3.4).
+
+**Decision tree — which type / code:**
+
+```
+Did the error happen inside our app's logic (no remote call involved)?
+├─ YES → AppError, factory chosen by the failure semantics (§3.1, §3.2).
+└─ NO → We were calling a remote service.
+        ├─ Did the server send back a response?
+        │   ├─ NO  → AppError. NewUnavailable for refused/reset/DNS,
+        │   │        NewTimeout for context deadline; WithCause(transportErr).
+        │   └─ YES → RemoteError, built by the driven adapter with a
+        │            Canonical *AppError + Response + BodyCode/BodyMessage (§2.2, §3.3).
+        └─ Response indicates success? → return the parsed result; not an error.
+```
+
+**Per-layer cheat-sheet:**
+
+```
+DOMAIN LAYER       → AppError only; codes: NotFound, AlreadyExists,
+                     FailedPrecondition, OutOfRange, IllegalState, IllegalArg
+APPLICATION LAYER  → AppError (propagates or constructs); AddNote for
+                     upstream context; no protocol translation
+DRIVEN ADAPTER     → AppError for transport failures; RemoteError for
+                     server-responded failures; owns translation:
+                     remote signals → Canonical Code
+INTERFACES LAYER   → errors.As to *AppError → map Code to status;
+                     RemoteError / unknown → 500. Log full error; sanitize.
+
+Construction       → per-Code factory(event, opts...) +
+                     WithMessage / WithCase / WithCause / WithDetails
+Propagation        → AddNote for same error; fmt.Errorf %w for new layer
+Cross-cutting      → branch on appErr.Code() / remoteErr.Canonical.Code()
+                     (check *RemoteError first — Canonical is not on the
+                     errors.As chain)
+```
 
 ---
 
-## 2. Library types you'll use
+## 2. The two error types
 
 ### 2.1 `*apperror.AppError`
 
-The standardized application error.
+The standardized application error. Fields (all accessed via methods):
 
-Fields (all accessed via methods):
-- `Code()` — one of this package's `Code` constants. The standardized
-  failure taxonomy. **Use Code for cross-cutting decisions** (retry,
-  log aggregation key, HTTP status mapping at the boundary).
-- `Case()` — optional `Case` identifying the specific business condition
-  (e.g. `"purchase_limit_exceeded"`). **Rare by default** — add one only
-  when a caller (UI, partner integration, runbook, dashboard) will branch
-  on it to change user-facing behavior or trigger a different flow. See
-  §4.6 for the threshold and a worked example.
+- `Code()` — one of the package's `Code` constants; the standardized failure
+  taxonomy. **Use Code for cross-cutting decisions** (retry, log aggregation
+  key, HTTP status mapping at the boundary).
+- `Case()` — optional `Case` for a specific business condition
+  (e.g. `"purchase_limit_exceeded"`). **Rare by default — see §4.6.**
 - `Message()` — human-readable description for logs / responses.
 - `Event()` — operation name in `"{namespace}.{operation}"` form
-  (e.g. `"user.signup"`). Used as the structured-log event name.
-- `Details()` — ad-hoc structured details. Only for one-off, low-frequency
-  data; for stable structured patterns use a typed wrapper struct (see
-  §6.4).
+  (e.g. `"user.signup"`); used as the structured-log event name.
+- `Details()` — ad-hoc structured details. One-off, low-frequency data only; for
+  stable structured patterns use a typed wrapper struct.
 - `Cause()` / `Unwrap()` — underlying cause for `errors.Is` / `errors.As`.
+- `StackTrace()` — call stack captured at construction; rendered to logs only
+  for unexpected (500-class) codes (§4.5), never to the client.
 
-**Construct only via per-Code factories**, which all share the same signature:
+**Construct only via per-Code factories**, all sharing one signature:
 
 ```go
 func NewXxx(event string, opts ...Option) *AppError
 ```
 
-- **`event`** is the first positional argument and is *required*. It
-  names the operation the failure occurred during, in
-  `"{namespace}.{operation}"` form (e.g. `"user.signup"`,
-  `"order.fulfilment.charge"`). Factories panic on empty event so this
-  can't be silently forgotten.
-- **`apperror.WithMessage("...")`** attaches the human-readable message.
-  Optional — when omitted, the message falls back to
-  `Code.Description()` so the rendered error is still non-empty.
-- **`apperror.WithCase(...)`**, **`apperror.WithCause(...)`**, and
-  **`apperror.WithDetails(...)`** layer the remaining optional fields.
+- **`event`** (first positional, *required*) names the operation the failure
+  occurred during, `"{namespace}.{operation}"` (e.g. `"user.signup"`,
+  `"order.fulfilment.charge"`). Factories panic on empty event.
+- **`WithMessage("...")`** attaches the message; optional — falls back to
+  `Code.Description()` when omitted.
+- **`WithCase(...)`**, **`WithCause(...)`**, **`WithDetails(...)`** layer the
+  remaining optional fields.
 
 ```go
 apperror.NewIllegalInput("user.signup", apperror.WithMessage("email must contain @"))
@@ -78,10 +113,9 @@ apperror.NewInternalError("user.lookup",
     apperror.WithMessage("db query failed"), apperror.WithCause(err))
 ```
 
-There is **no** `apperror.New(code, ...)` generic constructor by design.
-If you have a runtime-determined Code (rare; e.g. translating an HTTP
-status to a Code), write an explicit switch in the calling code — do
-not work around the missing generic constructor.
+There is **no** generic `apperror.New(code, ...)` by design. For a
+runtime-determined Code (rare; e.g. translating an HTTP status), write an
+explicit switch in the calling code.
 
 **Factories** (one per non-OK Code):
 
@@ -94,60 +128,69 @@ NewAuthorizationExpired, NewIllegalArg
 ```
 
 `NewResourceExhausted` and `NewOpAborted` are deprecated aliases for
-`NewTooManyRequests` and `NewOpConflict` — do **not** use them in new
-code.
+`NewTooManyRequests` and `NewOpConflict` — do **not** use them in new code.
 
 ### 2.2 `*apperror.RemoteError`
 
 For server-responded remote failures. Fields:
 
-- `Canonical *AppError` — **must be non-nil**. The normalized view of
-  this failure in our taxonomy. Set by the driven adapter at the call
-  boundary. `Canonical` is **NOT** a cause; it's a parallel view of the
-  same error. Access it explicitly: `r.Canonical.Code()`.
-- `Service`, `Operation` — logical service name and logical operation
-  name (e.g. `"user-service"`, `"GetUser"`). Operation is a **logical**
-  name, not an HTTP method+path.
-- `Request *Request` — captured outbound request (optional, often nil
-  to avoid logging sensitive bodies).
+- `Canonical *AppError` — **must be non-nil**. The driven adapter's translation
+  of the *remote response* into our taxonomy, **preserving the remote error's own
+  semantics** (remote HTTP 400 → `IllegalInput`, 404 → `NotFound`, …). It is a
+  **parallel view, not a cause**, and it describes the *remote call*, not our own
+  API contract: use it to *inspect* the failure (retry, circuit-breaking,
+  logging), **not** as a ready-made response for our API clients (§3.4). Access it
+  explicitly as `r.Canonical.Code()`.
+- `Service`, `Operation` — logical names (e.g. `"user-service"`, `"GetUser"`),
+  not an HTTP method+path.
+- `Request *Request` — captured outbound request (optional, often nil to avoid
+  logging sensitive bodies).
 - `Response *Response` — **must be non-nil**. Captured response.
-- `BodyCode`, `BodyMessage` — the remote service's app-level error
-  signals parsed from `Response.Body`. Useful as low-cardinality
-  observability aggregation keys.
-- `RetryAfter time.Duration` — normalized retry hint, if the remote
-  provided one.
+- `BodyCode`, `BodyMessage` — the remote's app-level error signals parsed from
+  `Response.Body`; good low-cardinality observability keys.
+- `RetryAfter time.Duration` — normalized retry hint, if the remote provided one.
 
-Methods:
-- `StatusCode()` — protocol status code (from `Response.StatusCode`).
-- `Event()` — `Service + "." + Operation`.
+Methods: `StatusCode()` (from `Response.StatusCode`) and `Event()`
+(`Service + "." + Operation`).
 
-**RemoteError is a leaf error**: no `Unwrap`, no `Cause` field. The
-Canonical view is intentionally not on the `errors.Is`/`errors.As`
-chain — consumers access it directly via `r.Canonical`.
-
-`RemoteError` is **not** a subtype of `*AppError`. `errors.As(err, &appErr)`
-will NOT recover the Canonical view from a RemoteError. Use
-`errors.As(err, &remoteErr)` and then read `remoteErr.Canonical`.
-
-### 2.3 Three "codes" on a RemoteError
+**Three "codes" live on a RemoteError** — log all three as separate fields (§4.5):
 
 ```
-r.Canonical.Code()  // canonical: our taxonomy. Use for retry / circuit
-                    //            breaker / log aggregation.
-r.StatusCode()      // protocol: HTTP/RPC status code. Use for retry
-                    //           decisions that depend on transport class.
-r.BodyCode          // remote app: the remote service's own code string.
-                    //             Forensics / runbook reference / a
-                    //             low-cardinality observability label.
+r.Canonical.Code()  // our taxonomy — retry / circuit breaker / log aggregation
+r.StatusCode()      // protocol HTTP/RPC status — transport-class retry decisions
+r.BodyCode          // remote's own code string — forensics / runbook / label
 ```
 
-Pivot tip: when logging, write all three as separate structured fields
-so dashboards can aggregate by any one of them.
+**Rules — apply wherever you build or read a RemoteError:**
 
-### 2.4 Optional: numeric Case identifiers
+- **It is a leaf error**: no `Unwrap`, no `Cause`. `Canonical` is intentionally
+  *not* on the `errors.Is` / `errors.As` chain.
+- **Read the canonical view via `errors.As(err, &remoteErr)` then
+  `remoteErr.Canonical`** — `errors.As(err, &appErr)` will NOT recover it. Always
+  check `*RemoteError` before `*AppError`.
+- **Do NOT set `WithCause` on `Canonical`** — a RemoteError has no cause (the
+  response itself is the failure).
+- **Do NOT set `WithDetails` on `Canonical`** — remote-side structured info goes
+  in `BodyCode` / `BodyMessage` / `Response.Body`.
+- **The Canonical's `event` is ignored** — `Event()` reads `Service.Operation`,
+  never the embedded value. Pass a service-scoped placeholder like
+  `"user-service.translate"`.
 
-If your app's case identifiers need to be numeric (e.g. for stable API
-error codes like `"1_3_1042"`), use `apperror/numcase`:
+**Service-specific envelopes** (e.g. Stripe-shaped errors): embed `*RemoteError`
+in a wrapper type; consumers reach the extra fields via `errors.As`:
+
+```go
+type StripeError struct {
+    *apperror.RemoteError
+    DeclineCode    string
+    DeclineMessage string
+}
+```
+
+### 2.3 Optional: numeric Case identifiers
+
+If case identifiers must be numeric (e.g. stable API codes like `"1_3_1042"`),
+use `apperror/numcase`:
 
 ```go
 import "github.com/ikonglong/go-apperror/numcase"
@@ -165,34 +208,28 @@ err := apperror.NewNotFound("user gone", apperror.WithCase(c))
 // c.Identifier() == "1_3_1042"
 ```
 
-For most apps, descriptive string cases via `apperror.NewStrCase("...")`
-are simpler and preferred.
+For most apps, descriptive string cases via `apperror.NewStrCase("...")` are
+simpler and preferred.
 
 ---
 
 ## 3. Per-layer responsibilities
 
-The architecture has four error-relevant layers. Each has a **distinct**
-set of rules. **Always identify which layer you're writing in before
-choosing how to handle errors.**
+Four error-relevant layers, each with distinct rules. **Identify which layer
+you're in before choosing how to handle an error.** The boundary principle from
+§1 governs the split: inner layers construct and propagate; the two outer
+boundaries translate.
 
 ### 3.1 Domain layer
 
-**What it produces**: pure domain errors using `AppError`. The domain
-layer must not know about HTTP, RPC, databases, or anything technical.
+Produces **pure domain errors** as `AppError`. Knows nothing about HTTP, RPC,
+databases, or anything technical.
 
-**Typical codes used**:
-- `CodeNotFound` — entity does not exist
-- `CodeAlreadyExists` — entity already present
-- `CodeFailedPrecondition` — business rule not satisfied
-- `CodeOutOfRange` — value outside allowed range
-- `CodeIllegalState` — invariant broken; data corruption
-- `CodeIllegalArg` — programmer error: invalid args passed within our code
-
-**Patterns**:
+Typical codes: `CodeNotFound`, `CodeAlreadyExists`, `CodeFailedPrecondition`,
+`CodeOutOfRange`, `CodeIllegalState` (invariant broken / data corruption),
+`CodeIllegalArg` (programmer error: invalid args within our code).
 
 ```go
-// Domain method
 func (u *User) Promote() error {
     if u.tier == TierGold {
         return apperror.NewFailedPrecondition(
@@ -206,19 +243,21 @@ func (u *User) Promote() error {
 }
 ```
 
-**Forbidden in domain**:
-- Creating `RemoteError` (the domain doesn't call remote services).
-- Codes that imply transport/protocol concerns: `CodeOpCancelled`,
-  `CodeTimeout`, `CodeUnavailable`, `CodeTooManyRequests`,
-  `CodeAuthorizationExpired` etc. — those are technical, not domain.
+**Forbidden in domain:** creating `RemoteError` (domain calls no remote
+services); codes that imply transport/protocol concerns (`CodeOpCancelled`,
+`CodeTimeout`, `CodeUnavailable`, `CodeTooManyRequests`,
+`CodeAuthorizationExpired`).
 
 ### 3.2 Application layer
 
-**What it produces**: usually propagates errors from domain and driven
-adapters; sometimes constructs its own AppError for use-case-level
-preconditions.
+Usually **propagates** errors from domain and driven adapters; sometimes
+constructs its own `AppError` for use-case-level preconditions.
 
-**Typical patterns**:
+**Converting a remote failure for our clients happens here.** A `RemoteError`
+carries the *remote* call's semantics (§2.2), so decide per propagation strategy
+how it should surface to our API consumers and wrap it into an `AppError`
+accordingly — usually `InternalError` (a remote 400 is rarely our caller's
+fault). Left unconverted, it reaches the boundary and renders as 500 (§3.4).
 
 ```go
 func (s *SignupService) Signup(ctx context.Context, email string) error {
@@ -231,35 +270,26 @@ func (s *SignupService) Signup(ctx context.Context, email string) error {
     }
     user, err := domain.NewUser(email)
     if err != nil {
-        // Domain returned its own AppError; add use-case context.
         if appErr := (*apperror.AppError)(nil); errors.As(err, &appErr) {
-            appErr.AddNote("during user.signup")
+            appErr.AddNote("during user.signup")   // context on the SAME error (§4.1, §4.3)
         }
         return err
     }
     if err := s.users.Insert(ctx, user); err != nil {
-        return err   // pass through; users.Insert is a driven-adapter call
+        return err   // pass through; Insert is a driven-adapter call
     }
     return nil
 }
 ```
 
-**Add use-case context with `AddNote`** — but only when adding context
-to the SAME error, not when creating a new error event. See §4.3.
-
-**Forbidden in application**:
-- Calling external HTTP/RPC directly (that belongs in driven adapters).
-- Hand-rolling translation of HTTP/RPC statuses to our `Code` — that
-  also belongs in driven adapters.
+**Forbidden in application:** calling external HTTP/RPC directly, and
+translating HTTP/RPC statuses to our `Code` — both belong in driven adapters.
 
 ### 3.3 Driven adapters (external service clients)
 
-**This is where `RemoteError` is constructed** — and where the
-translation between the remote service's error shape and our standardized
-taxonomy lives. Every driven adapter for a remote service owns its own
-translation function.
-
-**Pattern** for an HTTP-based driven adapter:
+**Where `RemoteError` is constructed, and where remote → canonical translation
+lives.** Every driven adapter owns its translation function. For the RemoteError
+construction rules, see §2.2.
 
 ```go
 func (c *UserServiceClient) GetUser(ctx context.Context, id string) (*User, error) {
@@ -275,7 +305,6 @@ func (c *UserServiceClient) GetUser(ctx context.Context, id string) (*User, erro
         )
     }
     defer resp.Body.Close()
-
     body, _ := io.ReadAll(resp.Body)
 
     // ── Success ──
@@ -296,26 +325,22 @@ func (c *UserServiceClient) GetUser(ctx context.Context, id string) (*User, erro
         Code    string `json:"code"`
         Message string `json:"message"`
     }
-    _ = json.Unmarshal(body, &envelope) // best-effort parse; missing fields are OK
+    _ = json.Unmarshal(body, &envelope) // best-effort; missing fields OK
 
-    canonical := translateUserServiceError(resp.StatusCode, envelope.Code)
     return nil, &apperror.RemoteError{
-        Canonical:     canonical,
-        Service:       "user-service",
-        Operation:     "GetUser",
-        Response:      &apperror.Response{StatusCode: resp.StatusCode, Body: body},
-        BodyCode:      envelope.Code,
-        BodyMessage:   envelope.Message,
-        RetryAfter:    parseRetryAfter(resp.Header.Get("Retry-After")),
+        Canonical:   translateUserServiceError(resp.StatusCode, envelope.Code),
+        Service:     "user-service",
+        Operation:   "GetUser",
+        Response:    &apperror.Response{StatusCode: resp.StatusCode, Body: body},
+        BodyCode:    envelope.Code,
+        BodyMessage: envelope.Message,
+        RetryAfter:  parseRetryAfter(resp.Header.Get("Retry-After")),
     }
 }
 
-// Each driven adapter owns its own translation.
+// Each driven adapter owns its translation. Body code wins when present; status
+// is the fallback. (event is a placeholder — see §2.2.)
 func translateUserServiceError(status int, bodyCode string) *apperror.AppError {
-    // The event slot is required by every factory but ignored by
-    // RemoteError.Event() (which reads Service.Operation directly), so a
-    // service-scoped placeholder is enough here. Body code wins when
-    // present; status is the fallback.
     const ev = "user-service.translate"
     switch bodyCode {
     case "USER_GONE":
@@ -340,80 +365,43 @@ func translateUserServiceError(status int, bodyCode string) *apperror.AppError {
 }
 ```
 
-**Translation rules**:
-- The canonical Code is what upper layers will branch on. Pick it so
-  cross-cutting middleware behaves correctly (e.g. retry on
-  `CodeUnavailable`, `CodeTimeout`, `CodeTooManyRequests`).
-- Do NOT set `WithCause` on `Canonical` — RemoteError is a leaf error.
-- Do NOT set `WithDetails` on `Canonical` — remote-side structured info
-  belongs in `BodyCode` / `BodyMessage` / `Response.Body`.
-- The Canonical's `event` (required by every factory) is ignored at the
-  top level — `RemoteError.Event()` is `Service + "." + Operation` and
-  never reads the embedded value. Don't optimize for it; pass a
-  service-scoped placeholder like `"user-service.translate"`.
-
-**For a service-specific structured envelope** (e.g. Stripe-shaped
-errors), define a wrapper type that embeds `*RemoteError`:
-
-```go
-type StripeError struct {
-    *apperror.RemoteError
-    DeclineCode    string
-    DeclineMessage string
-}
-```
-
-Consumers do `errors.As(err, &stripeErr)` when they need Stripe-specific
-fields.
+**Pick the Canonical Code so cross-cutting middleware behaves correctly** — e.g.
+retry on `CodeUnavailable` / `CodeTimeout` / `CodeTooManyRequests`. Default HTTP
+mapping can start from `apperror.OpCodeFor(statusCode)`, but most adapters need
+service-specific overrides for in-body codes.
 
 ### 3.4 Interfaces (driving adapters)
 
-**What it does**: catches errors from Application, translates them into
-the wire format of the inbound protocol (HTTP response, gRPC status,
-queue NACK, etc.), and logs.
-
-**HTTP-handler pattern**:
+Catches errors from Application, **translates them to the inbound protocol's wire
+format** (HTTP response, gRPC status, queue NACK, …), logs, and sanitizes. It maps
+an `AppError`'s `Code` to the protocol status; a `RemoteError` or any other
+non-AppError that arrives *unconverted* falls back to 500 — the boundary can't
+assume the remote's (or an unknown error's) semantics describe our API contract.
+Converting a remote failure for our clients is the application layer's job (§3.2).
 
 ```go
-func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
-    user, err := h.svc.GetUser(r.Context(), chi.URLParam(r, "id"))
-    if err != nil {
-        renderError(w, r, err)
-        return
-    }
-    renderJSON(w, http.StatusOK, user)
-}
-
 func renderError(w http.ResponseWriter, r *http.Request, err error) {
-    // Step 1 — find the *AppError (works for plain AppError and for
-    // RemoteError via r.Canonical, see step 2 below).
+    // Map only an *AppError's Code to a status. A RemoteError or any other
+    // non-AppError reaching here was never converted by the application layer
+    // for our clients, so its semantics don't describe our API contract —
+    // fall back to 500. (The full error is still logged below, with a
+    // RemoteError's remote fields intact.)
     var appErr *apperror.AppError
-    var remoteErr *apperror.RemoteError
-
-    switch {
-    case errors.As(err, &remoteErr):
-        appErr = remoteErr.Canonical
-    case errors.As(err, &appErr):
-        // appErr is set
-    default:
-        appErr = apperror.NewInternalError("unhandled error", apperror.WithCause(err))
+    if !errors.As(err, &appErr) {
+        appErr = apperror.NewInternalError("rest.unhandled", apperror.WithCause(err))
     }
 
-    // Step 2 — map Code → HTTP status.
-    httpStatus, _ := apperror.HTTPStatusFor(appErr.Code())
-    if httpStatus == 0 {
+    httpStatus, ok := apperror.HTTPStatusFor(appErr.Code())
+    if !ok {
         httpStatus = apperror.StatusInternalServerError
     }
 
-    // Step 3 — log structured fields.
-    logError(r.Context(), err, appErr, remoteErr)
+    // Log the full error — ErrAttrs/ErrGroup still surfaces a RemoteError's
+    // service / operation / status / canonical-code for diagnosis (§4.5).
+    logError(r.Context(), err, appErr)
 
-    // Step 4 — render a sanitized response. Do NOT leak Cause / internal
-    // messages directly to clients on 5xx.
-    body := errorResponseBody{
-        Code:    appErr.Code().Name(),
-        Message: appErr.Message(),
-    }
+    // Sanitized response — Code / Case / Message only.
+    body := errorResponseBody{Code: appErr.Code().Name(), Message: appErr.Message()}
     if c := appErr.Case(); c != nil {
         body.Case = c.Identifier()
     }
@@ -421,19 +409,17 @@ func renderError(w http.ResponseWriter, r *http.Request, err error) {
 }
 ```
 
-**Sanitization**: never put internal stack traces, raw transport errors,
-or sensitive Request/Response bodies into the response sent to the
-client. Log them server-side; expose only `Code`, `Case`, and a
-client-safe `Message`.
+**Sanitize**: never put internal stack traces, raw transport errors, or
+sensitive Request/Response bodies into the client response. Log them
+server-side; expose only `Code`, `Case`, and a client-safe `Message`.
 
 ---
 
 ## 4. Common patterns
 
-### 4.1 Adding context as an error propagates up
+### 4.1 Add context as an error propagates up
 
-Use `AddNote` when the SAME error is propagated up and you want to add
-upstream context to its message (no new chain layer):
+`AddNote` adds upstream context to the SAME error's message (no new chain layer):
 
 ```go
 err := repo.FindUser(id)
@@ -446,13 +432,14 @@ if err != nil {
 }
 ```
 
-The error remains the same `*AppError`; only its Message is prepended
-with `" -> "` separated context.
+The error stays the same `*AppError`; its Message is prepended with `" -> "`
+separated context.
 
-### 4.2 Wrapping a non-AppError
+### 4.2 Wrap a non-AppError
 
-When you catch a `error` that is NOT an AppError (e.g. from a third-party
-library, stdlib, or a generic transport call):
+When you catch an `error` that is NOT an AppError (third-party, stdlib, generic
+transport call), wrap it with a factory + `WithCause` (which preserves it for
+`errors.Is` / `errors.As`):
 
 ```go
 data, err := json.Marshal(payload)
@@ -465,20 +452,18 @@ if err != nil {
 }
 ```
 
-`WithCause` preserves the original via `errors.Is`/`errors.As`.
-
-### 4.3 When to use AddNote vs `fmt.Errorf %w`
+### 4.3 `AddNote` vs `fmt.Errorf %w` vs factory
 
 | Goal | Tool |
 |---|---|
 | Same error, more context, keep `*AppError` type | `appErr.AddNote("...")` |
-| New error event, different semantics, grow chain | `fmt.Errorf("ctx: %w", err)` (then consumers `errors.As` to find the inner) |
-| Wrap a non-AppError into an AppError | A factory + `WithCause(err)` |
+| New error event, different semantics, grow chain | `fmt.Errorf("ctx: %w", err)` |
+| Wrap a non-AppError into an AppError | factory + `WithCause(err)` |
 
 ### 4.4 Retry policy
 
-Cross-cutting retry logic should branch on Canonical Code, falling back
-to RemoteError's protocol/body signals:
+Branch on Canonical Code, falling back to RemoteError's protocol/body signals.
+Check `*RemoteError` first — its Canonical is not on the `errors.As` chain (§2.2):
 
 ```go
 func shouldRetry(err error) (bool, time.Duration) {
@@ -503,53 +488,58 @@ func shouldRetry(err error) (bool, time.Duration) {
 }
 ```
 
-Note the **two `errors.As` calls**. Because `RemoteError`'s Canonical is
-not on the `errors.As` chain, you cannot consolidate this into a single
-"find any AppError" lookup — that's intentional. Always check for
-`*RemoteError` first.
-
 ### 4.5 Structured logging
 
-Log the following fields whenever you log an error. Field names are a
-recommended convention:
+Log these fields whenever you log an error (names are a recommended convention):
 
 ```
-level=error
-event=<appErr.Event() or remoteErr.Event()>
-code=<appErr.Code().Name()>
-case=<appErr.Case().Identifier() if non-nil>
-message=<appErr.Message()>
-// For RemoteError, additionally:
-service=<remoteErr.Service>
-operation=<remoteErr.Operation>
-status=<remoteErr.StatusCode()>
-body_code=<remoteErr.BodyCode>
-body_message=<remoteErr.BodyMessage>
-retry_after=<remoteErr.RetryAfter>
+event        = the operation at log time, supplied by the caller
+               (typically appErr.Event()) — exactly one event key
+code         = appErr.Code().Name()
+case         = appErr.Case().Identifier()    // if non-nil
+message      = appErr.Message()
+cause        = appErr.Cause().Error()        // if non-nil — SERVER-SIDE ONLY
+// For a RemoteError, additionally:
+service      = remoteErr.Service
+operation    = remoteErr.Operation
+status       = remoteErr.StatusCode()
+body_code    = remoteErr.BodyCode
+body_message = remoteErr.BodyMessage
+retry_after  = remoteErr.RetryAfter
+// For unexpected (500-class) codes, additionally:
+stack        = captured call stack(s)        // SERVER-SIDE ONLY
 ```
 
-`event` makes a great log primary key; `code` / `case` / `body_code`
-make good aggregation labels. **Do not** log raw `Response.Body` or
-captured `Request.Body` unconditionally — they may contain sensitive
-data; redact at the logging boundary.
+`event` makes a great primary key; `code` / `case` / `body_code` are good
+aggregation labels.
+
+**`cause` and `stack` are server-side only** — never put them in the client
+response (§3.4). `stack` is rendered only for unexpected, 500-class codes
+(`InternalError`, `UnknownError`, `IllegalState`); routine errors omit it so
+logs aren't buried in stack noise, and a `RemoteError` chain emits none (its
+remote fields already locate the failure). It is a `[][]string` with no embedded
+newlines, so it never splits a log record (§5).
+
+**Do not** log raw `Response.Body` / `Request.Body` unconditionally — they may
+contain sensitive data; redact at the boundary.
+
+In this project these come from `applog.ErrAttrs` / `applog.ErrGroup` (error
+fields + stack) and the level wrappers `applog.ErrorAttrs(ctx, event, msg, …)`
+(which supply `event`).
 
 ### 4.6 When to define a specific Case
 
-**Default: don't.** The `Code` alone is enough most of the time, and an
-empty Case keeps log/metric cardinality low and the API surface small.
+**Default: don't.** `Code` alone is enough most of the time, and an empty Case
+keeps cardinality low and the API surface small.
 
-**Add a Case only when product design or a caller needs to distinguish
-this specific situation from others sharing the same Code** — to present
-a friendlier user-facing prompt or to trigger a different follow-up flow.
-If nothing branches on it, don't mint it.
+**Add a Case only when a concrete consumer (UI screen, partner contract, runbook
+step) will branch on it** — to show a friendlier prompt or trigger a different
+flow. If nothing branches on it, don't mint it.
 
-**Example — earns its keep.** During Account signup with
-`CodeAlreadyExists`, the UI wants to swap the generic "already registered"
-message for a CTA into the password-recovery flow when the conflict is on
-email or phone:
+**Earns its keep** — signup `CodeAlreadyExists` where the UI swaps the generic
+message for a password-recovery CTA when the conflict is on email/phone:
 
 ```go
-// In domain or application layer
 if existing, _ := repo.FindByEmail(ctx, email); existing != nil {
     return apperror.NewAlreadyExists(
         "account.create",
@@ -559,138 +549,41 @@ if existing, _ := repo.FindByEmail(ctx, email); existing != nil {
 }
 ```
 
-Without the Case, the client has only `CodeAlreadyExists` — which could
-equally mean a duplicate username, a duplicate display name, or a
-duplicate idempotency key — and would have to fall back to parsing
-`Message`, which is brittle.
+Without the Case the client sees only `CodeAlreadyExists` — which could equally
+be a duplicate username or idempotency key — and would have to parse `Message`.
 
-**Anti-example — pure noise.** Don't mint a Case just to mirror an
-internal failure mode that no caller acts on:
+**Pure noise** — a Case mirroring an internal failure mode no caller acts on:
 
 ```go
-// Bad — adds cardinality with no consumer.
-apperror.NewIllegalInput(
-    "user.signup",
+// Bad — cardinality with no consumer.
+apperror.NewIllegalInput("user.signup",
     apperror.WithMessage("email must contain @"),
-    apperror.WithCase(apperror.NewStrCase("email_missing_at")),
-)
+    apperror.WithCase(apperror.NewStrCase("email_missing_at")))
 ```
 
-`Message + Code` already carries everything useful for an input
-validation error like this. A Case here only inflates dashboards and
-gives future readers the false impression that someone, somewhere
-branches on it.
-
-**The threshold question, in order**: before adding `WithCase(...)`, ask
-— (1) Is there a concrete consumer (UI screen, partner contract, runbook
-step) that will behave differently for this Case vs. a sibling Case under
-the same Code? (2) Would `Message` alone be too brittle for that
-consumer? If both yes → define the Case. Otherwise, skip it.
+**Threshold, in order:** (1) Is there a concrete consumer that behaves
+differently for this Case vs. a sibling under the same Code? (2) Would `Message`
+alone be too brittle for it? Both yes → define it. Otherwise skip.
 
 ---
 
-## 5. Decision tree: which type / code do I use?
+## 5. Anti-patterns — DO NOT
 
-```
-Did the error happen inside our app's logic (no remote call involved)?
-├─ YES → AppError, factory chosen by the failure semantics
-│         (see "Typical codes used" in §3.1 + §3.2)
-└─ NO → We were calling a remote service.
-        ├─ Did the server send back a response?
-        │   ├─ NO  → AppError. Use NewUnavailable for refused/reset/DNS,
-        │   │        NewTimeout for context deadline; WithCause(transportErr).
-        │   └─ YES → RemoteError. Driven adapter constructs it with
-        │            a Canonical *AppError + Response + BodyCode/BodyMessage.
-        └─ Status / body indicates success?
-            └─ Return the parsed result; not an error.
-```
+These are the traps not already stated as a positive rule above.
 
-For choosing the Canonical Code when constructing a RemoteError, the
-driven adapter's translation function decides. Default mapping for HTTP
-statuses can use `apperror.OpCodeFor(statusCode)` but most adapters will
-need service-specific overrides for in-body error codes.
+1. **Do NOT construct an AppError with `CodeOK`.** No factory exists; CodeOK is
+   only for the Code↔HTTP-status mapping.
+2. **Do NOT put the failure mode in `event`.** Event names the operation
+   (`"user.signup"`); the failure mode belongs in `Code` / `Case`.
+   `event="user.signup.email_invalid"` collapses two observability dimensions and
+   breaks `event × code` pivots.
+3. **Do NOT use `\n` in error messages.** Log aggregators split on newlines. Keep
+   messages single-line; use `AddNote`'s `" -> "` for multi-layer context.
+4. **Do NOT mint your own `Code` values** (e.g. `apperror.Code(100)`). The
+   taxonomy is closed; if nothing fits, reconsider the semantic (usually the
+   closest Code + a specific Case).
+5. **Do NOT add methods to `AppError` that forward to remote-specific data.**
+   AppError is the domain-error type; remote specifics belong on RemoteError.
 
----
-
-## 6. Anti-patterns — DO NOT
-
-1. **Do NOT construct an AppError with `CodeOK`.** No factory exists for
-   it. CodeOK is preserved only for the Code↔HTTP-status mapping.
-
-2. **Do NOT include the failure mode in `event`.** Event names the
-   operation: `"user.signup"`. The failure mode belongs in `Code` /
-   `Case`. Writing `event="user.signup.email_invalid"` collapses two
-   independent observability dimensions into one and breaks
-   `event × code` pivots.
-
-3. **Do NOT use `\n` in error messages.** Log aggregators split on
-   newlines and break a single error into multiple log events. Keep
-   messages single-line; the `" -> "` separator from `AddNote` is the
-   right tool for multi-layer context.
-
-4. **Do NOT create a RemoteError for a transport-layer failure.**
-   No response was received → AppError. The presence of a Response is
-   what makes a failure a RemoteError.
-
-5. **Do NOT set `WithCause` or `WithDetails` on the `Canonical` of a
-   RemoteError.** RemoteError is a leaf with its own typed fields for
-   those concerns; setting them on Canonical creates ambiguity:
-   - Cause: RemoteError has no cause (it's the server's response itself).
-   - Details: use `BodyCode` / `BodyMessage` / `Response.Body` instead.
-
-   The Canonical's `event` (required by every factory) is ignored at
-   the top level — `RemoteError.Event()` reads `Service.Operation` and
-   never the embedded value. Don't optimize for it; pass a
-   service-scoped placeholder like `"user-service.translate"`.
-
-6. **Do NOT expect `errors.As(err, &appErr)` to recover the Canonical
-   view from a RemoteError.** Canonical is a parallel view, not in the
-   `errors.Is`/`errors.As` chain. Use `errors.As(err, &remoteErr)`,
-   then read `remoteErr.Canonical` explicitly.
-
-7. **Do NOT mint your own `Code` values** (e.g. `apperror.Code(100)`).
-   The package's taxonomy is closed; if you find your error doesn't fit
-   any existing Code, that's a sign you should reconsider the semantic
-   (likely the closest fit + a specific Case is what you want).
-
-8. **Do NOT leak raw upstream / cause details to API clients.** Sanitize
-   at the Interfaces layer: expose `Code.Name()`, `Case.Identifier()`,
-   `Message()` — but never raw stack traces, transport errors, or
-   third-party response bodies unless the user explicitly opted in (e.g.
-   internal debug endpoint).
-
-9. **Do NOT add methods to AppError for forwarding to remote-specific
-   data.** AppError is the domain-error type; remote-specific
-   information belongs on RemoteError. Don't blur this boundary.
-
-10. **Do NOT translate remote errors in the Application or Domain
-    layers.** Translation lives in driven adapters at the boundary.
-    Upper layers receive `*AppError` (or `*RemoteError` if they have a
-    legitimate need to inspect remote specifics for retry/observability).
-
----
-
-## 7. Quick reference cheat-sheet
-
-```
-DOMAIN LAYER         → AppError only; codes: NotFound, AlreadyExists,
-                        FailedPrecondition, OutOfRange, IllegalState,
-                        IllegalArg
-APPLICATION LAYER    → AppError (propagates or constructs); AddNote for
-                        upstream context; no protocol translation
-DRIVEN ADAPTER       → AppError for transport failures
-                       RemoteError for server-responded failures
-                       Owns translation: remote signals → Canonical Code
-INTERFACES LAYER     → errors.As to *RemoteError / *AppError, map to wire
-                       format, log structured fields, sanitize response
-
-Construction         → per-Code factory(event, opts...) +
-                       WithMessage / WithCase / WithCause / WithDetails
-Propagation          → AddNote for same error; fmt.Errorf %w for new layer
-Cross-cutting        → branch on appErr.Code() / remoteErr.Canonical.Code()
-                       NOT on errors.As(err, &appErr) when going through
-                       a RemoteError (Canonical is parallel, not on chain)
-```
-
-When in doubt, re-read §1 (the three categories) and §5 (the decision
-tree). Most mistakes start there.
+When in doubt, re-read §1 — the categories, the boundary principle, and the
+decision tree. Most mistakes start there.
