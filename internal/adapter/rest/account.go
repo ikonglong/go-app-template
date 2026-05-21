@@ -61,7 +61,7 @@ func (h *AccountHandler) SignUp(ctx context.Context, c *app.RequestContext) {
 		renderError(ctx, c, err)
 		return
 	}
-	c.JSON(consts.StatusCreated, buildAccountResp(out.Account))
+	c.JSON(consts.StatusOK, buildAccountResp(out.Account))
 }
 
 // validate checks structural rules only — uniqueness lives in the

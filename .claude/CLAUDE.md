@@ -90,6 +90,11 @@ These are **project conventions**, not Go idioms. Apply them consistently.
 
 @error_handling_guide.md
 
+### HTTP success codes
+
+Successful requests return `200` — don't use `201` / `204` to encode create /
+no-content semantics (the outcome is in the response body).
+
 ### Logging
 
 The guides below are **general** logging references (levels + worked examples); their examples use **unstructured** logging (format-string pseudocode). Take the level choices and semantics from them — but this app-template logs **structured** via `log/slog` (`internal/common/log/`), so emit through that logger's API and follow structured-logging best practices (key/value attributes, not string interpolation).
