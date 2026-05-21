@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -76,6 +77,37 @@ func LoadConfig(dotenvPath string) Config {
 		DBName:     os.Getenv("DATABASE__NAME"),
 		BcryptCost: bcryptCost,
 	}
+}
+
+// Validate reports every required setting that is missing or malformed, as a
+// single error. main calls it right after LoadConfig and exits non-zero on
+// failure, so a misconfigured process fails fast with a clear message instead
+// of booting on defaults and erroring cryptically later. Concretely: an empty
+// DATABASE__NAME otherwise falls back to the connection user as the database
+// name, surfacing only as `database "<user>" does not exist` on the first query
+// — this turns that into a startup-time `DATABASE__NAME is required`.
+//
+// DATABASE__PASSWORD is intentionally not required: trust / peer auth uses an
+// empty password. Fields with a built-in default (host, log settings) can't be
+// empty, so they aren't checked here.
+func (c Config) Validate() error {
+	var problems []string
+	if c.DBUser == "" {
+		problems = append(problems, "DATABASE__USER is required")
+	}
+	if c.DBName == "" {
+		problems = append(problems, "DATABASE__NAME is required")
+	}
+	if _, err := strconv.Atoi(c.ServerPort); err != nil {
+		problems = append(problems, fmt.Sprintf("SERVER__PORT must be numeric, got %q", c.ServerPort))
+	}
+	if _, err := strconv.Atoi(c.DBPort); err != nil {
+		problems = append(problems, fmt.Sprintf("DATABASE__PORT must be numeric, got %q", c.DBPort))
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("invalid configuration: %s", strings.Join(problems, "; "))
+	}
+	return nil
 }
 
 // Addr is the host:port the HTTP server listens on.

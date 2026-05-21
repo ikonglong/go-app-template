@@ -23,6 +23,11 @@ func main() {
 // process exit code.
 func run() int {
 	cfg := assembly.LoadConfig(".env")
+	if err := cfg.Validate(); err != nil {
+		// Logger isn't up yet; slog.Default (stderr) is the only sink.
+		slog.Error("invalid configuration", slog.Any("error", err))
+		return 1
+	}
 
 	closeLog, err := assembly.InitLogger(cfg)
 	if err != nil {
