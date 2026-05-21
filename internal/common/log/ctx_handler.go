@@ -43,9 +43,10 @@ func RequestIDFromCtx(ctx context.Context) string {
 	return ""
 }
 
-// ctxHandler decorates a base slog.Handler, injecting request-scoped attrs
-// pulled from ctx into each record. To surface a new field on every line,
-// read another ctx value in Handle — that single edit is all it takes.
+// ctxHandler decorates a base slog.Handler: it stamps each record's time in
+// UTC and injects request-scoped attrs pulled from ctx. To surface a new field
+// on every line, read another ctx value in Handle — that single edit is all it
+// takes.
 type ctxHandler struct {
 	slog.Handler // embedded: Enabled (and any future methods) delegate through
 }
@@ -54,9 +55,13 @@ func newCtxHandler(base slog.Handler) ctxHandler {
 	return ctxHandler{Handler: base}
 }
 
-// Handle is where enrichment happens: pull request-scoped values from ctx
-// and attach them before delegating to the base handler.
+// Handle normalizes and enriches each record before delegating to the base
+// handler: it stamps the record time in UTC (matching the app's UTC-end-to-end
+// convention — DB session TZ, clock.Now()) and attaches request-scoped values
+// pulled from ctx. Done here it costs one conversion per record, versus a
+// per-attr ReplaceAttr hook.
 func (h ctxHandler) Handle(ctx context.Context, r slog.Record) error {
+	r.Time = r.Time.UTC()
 	if id := RequestIDFromCtx(ctx); id != "" {
 		r.AddAttrs(slog.String("request_id", id))
 	}
