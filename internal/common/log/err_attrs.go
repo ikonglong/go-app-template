@@ -33,7 +33,7 @@ import (
 //
 // Errors that are neither *AppError nor wrap one collapse to a single
 // "error" attr carrying err.Error(); that path should be rare — the
-// inbound boundary wraps unknown errors as InternalError before logging.
+// inbound boundary wraps unknown errors as Internal before logging.
 //
 // ErrAttrs returns the fields flat. To render them nested under an "err"
 // object instead, use ErrGroup, which wraps this output in a group attr.
@@ -52,11 +52,12 @@ func ErrAttrs(err error) []slog.Attr {
 		ae *apperror.AppError
 	)
 
-	// RemoteError must be checked first: its Canonical *AppError is a
-	// parallel view (not on the errors.As chain), so we cannot rely on
-	// a single errors.As(err, &ae) to surface remote-specific fields.
+	// When a RemoteError is the cause, surface its remote-specific fields.
+	// In go-apperror v0.2.0 the canonical *AppError wraps the RemoteError as
+	// its cause, so both are on the same errors.As chain: errors.As(&re)
+	// reaches the wrapped RemoteError and errors.As(&ae) below reaches the
+	// canonical AppError that carries code/case/message.
 	if errors.As(err, &re) {
-		ae = re.Canonical
 		attrs = append(attrs,
 			slog.String("service", re.Service),
 			slog.String("operation", re.Operation),
@@ -73,8 +74,17 @@ func ErrAttrs(err error) []slog.Attr {
 		if re.RetryAfter > 0 {
 			attrs = append(attrs, slog.Duration("retry_after", re.RetryAfter))
 		}
-	} else if !errors.As(err, &ae) {
-		return []slog.Attr{slog.String("error", err.Error())}
+	}
+
+	// The canonical AppError carries the normalized code/case/message. It is
+	// the outer layer when a RemoteError is wrapped, and the whole error
+	// otherwise. A chain that is neither an AppError nor wraps one collapses
+	// to a single "error" attr (rare — the inbound boundary wraps unknown
+	// errors as Internal before logging). Append rather than replace so any
+	// remote fields already gathered above survive an unwrapped RemoteError
+	// (which carries no canonical AppError) instead of being dropped.
+	if !errors.As(err, &ae) {
+		return append(attrs, slog.String("error", err.Error()))
 	}
 
 	attrs = append(attrs,

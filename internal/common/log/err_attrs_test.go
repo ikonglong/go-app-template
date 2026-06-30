@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/ikonglong/go-apperror"
 )
@@ -54,6 +55,59 @@ func TestErrGroupIncludesCause(t *testing.T) {
 	got := groupToMap(ErrGroup(err))
 	if got["cause"] != "connection refused" {
 		t.Errorf("cause = %q, want %q", got["cause"], "connection refused")
+	}
+}
+
+// A canonical AppError wrapping a RemoteError as its cause (the go-apperror
+// v0.2.0 driven-adapter shape) must surface BOTH the remote-side fields
+// (service/operation/status/body_code/body_message/retry_after, recovered via
+// errors.As(&re)) and the canonical code/message (from the wrapping AppError,
+// recovered via errors.As(&ae)) in one flat field set.
+func TestErrAttrsSurfacesWrappedRemoteError(t *testing.T) {
+	re := &apperror.RemoteError{
+		Service:     "user-service",
+		Operation:   "GetUser",
+		Response:    &apperror.Response{StatusCode: 503, Body: []byte(`{"code":"DEGRADED"}`)},
+		BodyCode:    "DEGRADED",
+		BodyMessage: "service in maintenance",
+		RetryAfter:  30 * time.Second,
+	}
+	err := apperror.NewUnavailable("user-service.GetUser",
+		apperror.WithMessage("user-service degraded"),
+		apperror.WithCause(re),
+	)
+
+	got := groupToMap(ErrGroup(err))
+	for k, want := range map[string]string{
+		"service":      "user-service",
+		"operation":    "GetUser",
+		"status":       "503",
+		"body_code":    "DEGRADED",
+		"body_message": "service in maintenance",
+		"retry_after":  "30s",
+		"code":         apperror.CodeUnavailable.Name(),
+		"message":      "user-service degraded",
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %q, want %q", k, got[k], want)
+		}
+	}
+}
+
+// A RemoteError anywhere in the chain suppresses the stack, even when the
+// canonical code is otherwise stack-worthy (Unknown here): the wrapping
+// AppError's stack points at the adapter translation site, not a useful
+// origin, and the remote fields already carry the diagnostic signal.
+func TestStackAttrsSkippedWhenRemoteErrorWrapped(t *testing.T) {
+	re := &apperror.RemoteError{
+		Service:   "user-service",
+		Operation: "GetUser",
+		Response:  &apperror.Response{StatusCode: 500},
+	}
+	err := apperror.NewUnknown("user-service.GetUser", apperror.WithCause(re))
+
+	if attrs := StackAttrs(err); attrs != nil {
+		t.Errorf("expected no stack attr when a RemoteError is wrapped, got %v", attrs)
 	}
 }
 

@@ -33,7 +33,7 @@ type errorResp struct {
 func renderError(ctx context.Context, c *app.RequestContext, err error) {
 	var appErr *apperror.AppError
 	if !errors.As(err, &appErr) {
-		appErr = apperror.NewInternalError("rest.unhandled", apperror.WithCause(err))
+		appErr = apperror.NewInternal("rest.unhandled", apperror.WithCause(err))
 	}
 
 	// Error and request context each go in as a nested group ("err" / "req")

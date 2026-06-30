@@ -17,9 +17,9 @@ import (
 // design: AppError records a stack at every construction, but we only emit
 // it for codes a human would actually open a trace for.
 var stackWorthyCodes = map[apperror.Code]bool{
-	apperror.CodeInternalError: true,
-	apperror.CodeUnknownError:  true,
-	apperror.CodeIllegalState:  true,
+	apperror.CodeInternal:     true,
+	apperror.CodeUnknown:      true,
+	apperror.CodeIllegalState: true,
 }
 
 // StackAttrs returns a single "stack" structured-log attr carrying the
@@ -43,10 +43,10 @@ func StackAttrs(err error) []slog.Attr {
 		return nil
 	}
 
-	// Only AppError-led chains get a stack. A RemoteError's Canonical
-	// stack would point at the translation site rather than a useful
-	// origin, and its remote fields already come from ErrAttrs — so skip
-	// the stack whenever a RemoteError is in play.
+	// Only AppError-led chains get a stack. When a RemoteError is the
+	// cause, the wrapping AppError's stack points at the adapter translation
+	// site rather than a useful origin, and the remote fields already come
+	// from ErrAttrs — so skip the stack whenever a RemoteError is in play.
 	var primary *apperror.AppError
 	if !errors.As(err, &primary) {
 		return nil

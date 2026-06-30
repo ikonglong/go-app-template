@@ -28,7 +28,7 @@ func stackValue(t *testing.T, attrs []slog.Attr) [][]string {
 }
 
 func TestStackAttrsEmittedForUnexpectedCode(t *testing.T) {
-	err := apperror.NewInternalError("user.lookup") // origin: this line
+	err := apperror.NewInternal("user.lookup") // origin: this line
 
 	frames := stackValue(t, StackAttrs(err))
 	if len(frames) == 0 || len(frames[0]) == 0 {
@@ -67,7 +67,7 @@ func TestStackAttrsWalksWrappedAppError(t *testing.T) {
 }
 
 func TestErrGroupNestsStackForUnexpectedCode(t *testing.T) {
-	g := ErrGroup(apperror.NewInternalError("user.lookup"))
+	g := ErrGroup(apperror.NewInternal("user.lookup"))
 	if g.Key != "err" {
 		t.Fatalf("want group key %q, got %q", "err", g.Key)
 	}
