@@ -19,8 +19,11 @@ def parse_args():
     p.add_argument("--repo", "-r", choices=["jet", "sqlc"], default="jet",
                    help="Persistence implementation")
     p.add_argument("--dir", "-C",
-                   help="Directory to create the project in "
-                        "(default: sibling of the template source)")
+                   help="Parent directory for the new project. "
+                        "The project is created as <dir>/<name> — "
+                        "so '--dir .' creates ./my-service, never "
+                        "touching the current directory itself. "
+                        "(default: sibling directory of the template source)")
     if len(sys.argv) == 1:
         p.print_help()
         sys.exit(0)
@@ -313,6 +316,9 @@ def go_mod_tidy(root):
 def main():
     args = parse_args()
     src = os.path.dirname(os.path.realpath(__file__))
+
+    # --dir is the parent directory; the project always lands at <dir>/<name>.
+    # This way '--dir .' means ./<name>, never the current directory itself.
     parent = os.path.abspath(args.dir or os.path.dirname(src))
     dst = os.path.join(parent, args.name)
 
