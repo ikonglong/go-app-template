@@ -18,8 +18,9 @@ def parse_args():
                    help="Project description (optional)")
     p.add_argument("--repo", "-r", choices=["jet", "sqlc"], default="jet",
                    help="Persistence implementation")
-    p.add_argument("--output", "-o",
-                   help="Output directory (default: ../<name>)")
+    p.add_argument("--dir", "-C",
+                   help="Directory to create the project in "
+                        "(default: sibling of the template source)")
     if len(sys.argv) == 1:
         p.print_help()
         sys.exit(0)
@@ -312,8 +313,13 @@ def go_mod_tidy(root):
 def main():
     args = parse_args()
     src = os.path.dirname(os.path.realpath(__file__))
-    dst = args.output or os.path.join(os.path.dirname(src), args.name)
-    dst = os.path.abspath(dst)
+    parent = os.path.abspath(args.dir or os.path.dirname(src))
+    dst = os.path.join(parent, args.name)
+
+    # Guard: refuse if the project directory already exists.
+    if os.path.exists(dst):
+        sys.exit(f"error: {dst!r} already exists — remove it first or "
+                 f"choose a different name")
 
     print(f"Creating {args.name} → {dst}")
     print(f"  repo: {args.repo}")
