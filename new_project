@@ -58,8 +58,12 @@ def copy_template(src, dst):
         sys.exit(f"error: template source {src!r} is inside the output "
                  f"directory — refusing to overwrite")
     if os.path.exists(dst):
-        sys.exit(f"error: {dst!r} already exists — remove it first or choose "
-                 f"a different output directory")
+        sys.exit(
+            f"error: {dst!r} already exists.\n"
+            f"  Remove it first:\n"
+            f"    rm -rf {dst}\n"
+            f"  Or choose a different project name."
+        )
     shutil.copytree(src, dst, ignore=_ignore)
 
 
@@ -324,8 +328,12 @@ def main():
 
     # Guard: refuse if the project directory already exists.
     if os.path.exists(dst):
-        sys.exit(f"error: {dst!r} already exists — remove it first or "
-                 f"choose a different name")
+        sys.exit(
+            f"error: {dst!r} already exists.\n"
+            f"  Remove it first:\n"
+            f"    rm -rf {dst}\n"
+            f"  Or choose a different project name."
+        )
 
     print(f"Creating {args.name} → {dst}")
     print(f"  repo: {args.repo}")
