@@ -38,8 +38,14 @@ def _ignore(path, names):
 
 def copy_template(src, dst):
     """Copy template to dst, skipping excluded items."""
+    src = os.path.abspath(src)
+    dst = os.path.abspath(dst)
+    if src == dst or dst.startswith(src + os.sep):
+        sys.exit(f"error: output directory {dst!r} is inside the template "
+                 f"source — refusing to overwrite")
     if os.path.exists(dst):
-        shutil.rmtree(dst)
+        sys.exit(f"error: {dst!r} already exists — remove it first or choose "
+                 f"a different output directory")
     shutil.copytree(src, dst, ignore=_ignore)
 
 
