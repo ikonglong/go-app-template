@@ -3,13 +3,19 @@ package assembly
 import (
 	"database/sql"
 
+	// scaffold:if jet
 	"github.com/go-jet/jet/v2/qrm"
+	// scaffold:endif
 	"go.uber.org/dig"
 
+	// scaffold:if jet
 	"go-app-template/internal/adapter/repo/jet"
 	jetrec "go-app-template/internal/adapter/repo/jet/gen/test/public/record"
+	// scaffold:endif
+	// scaffold:if sqlc
 	"go-app-template/internal/adapter/repo/sqlc"
 	sqlcgen "go-app-template/internal/adapter/repo/sqlc/gen"
+	// scaffold:endif
 	"go-app-template/internal/domain"
 )
 

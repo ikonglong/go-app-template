@@ -10,6 +10,37 @@ import sys
 from pathlib import Path
 
 
+# ── constants ───────────────────────────────────────────────────────────
+
+MODULE_OLD = "go-app-template"
+
+# Template layout — paths the script transforms or deletes. Centralised so a
+# layout change is a single-point edit.
+_REPO_DIR = "internal/adapter/repo"
+_ASSEMBLY_DIR = "internal/assembly"
+_CONTAINER_FILE = f"{_ASSEMBLY_DIR}/container.go"
+_MODULE_REPO_FILE = f"{_ASSEMBLY_DIR}/module_repo.go"
+_DOCS_DIR = "docs"
+_SQLC_YAML = "sqlc.yaml"
+
+# Excluded from template copy.
+_EXCLUDE = {".git", ".env", ".DS_Store", ".zed", "logs", ".claude/plans",
+            "CLAUDE.md", "README.md", "settings.local.json", "new_project"}
+
+# Marker text that uniquely identifies the template-only closure line in
+# container.go.
+_CLOSURE_MARKER = "return provideRepo(c, cfg)"
+
+# File suffixes that may contain scaffold markers.
+_PROCESS_SUFFIXES = {".go", ".md", ".example", ".yaml", ".yml", ".json"}
+
+# Comment-styles the marker recognizers handle.
+_CMT = r'\s*(?://|#)\s*scaffold:'
+
+
+
+# ── parse_args ──────────────────────────────────────────────────────────
+
 def parse_args():
     p = argparse.ArgumentParser(
         description="Create a new project from go-app-template")
@@ -30,22 +61,15 @@ def parse_args():
     return p.parse_args()
 
 
-# ── copy ──────────────────────────────────────────────────────────────
-
-EXCLUDE = {".git", ".env", ".DS_Store", ".zed", "logs", ".claude/plans",
-            "CLAUDE.md", "README.md", "settings.local.json"}
-
+# ── copy ────────────────────────────────────────────────────────────────
 
 def _ignore(path, names):
-    return [n for n in names if n in EXCLUDE]
+    return [n for n in names if n in _EXCLUDE]
 
 
 def copy_template(src, dst):
     """Copy template to dst, skipping excluded items."""
-    # Resolve src through symlinks (always exists).
     src = os.path.realpath(src)
-    # Resolve dst as far as possible — abspath works for nonexistent paths;
-    # realpath only on the existing prefix so we catch symlinks there.
     dst = os.path.abspath(dst)
     _dst_real = _resolve_existing(dst)
     if src == _dst_real:
@@ -72,17 +96,14 @@ def _resolve_existing(path):
     path = os.path.abspath(path)
     parts = path.split(os.sep)
     for i in range(len(parts), 0, -1):
-        prefix = os.sep.join(parts[:i]) or os.sep  # join(['']) = '' → root
+        prefix = os.sep.join(parts[:i]) or os.sep
         if os.path.exists(prefix):
             resolved = os.path.realpath(prefix)
             return os.path.join(resolved, *parts[i:])
     return path  # unreachable: root always exists for absolute paths
 
 
-# ── module path replacement ───────────────────────────────────────────
-
-MODULE_OLD = "go-app-template"
-
+# ── module path replacement ─────────────────────────────────────────────
 
 def replace_module_path(root, name):
     """Replace go-app-template → name in go.mod and all .go files."""
@@ -97,11 +118,7 @@ def replace_module_path(root, name):
             go_file.write_text(content.replace(MODULE_OLD, name))
 
 
-# ── container.go fix ──────────────────────────────────────────────────
-
-# Marker text that uniquely identifies the template-only closure line.
-_CLOSURE_MARKER = "return provideRepo(c, cfg)"
-
+# ── container.go fix ────────────────────────────────────────────────────
 
 def fix_container(root):
     """Replace the provideRepo closure with a direct call.
@@ -112,7 +129,7 @@ def fix_container(root):
     Fails loudly if the marker isn't found — that means the template source
     changed and this script needs updating.
     """
-    container_file = Path(root) / "internal/assembly/container.go"
+    container_file = Path(root) / _CONTAINER_FILE
     lines = container_file.read_text().split('\n')
     found = False
     for i, line in enumerate(lines):
@@ -127,10 +144,7 @@ def fix_container(root):
     container_file.write_text('\n'.join(lines))
 
 
-# ── scaffold marker processing ────────────────────────────────────────
-
-_PROCESS_SUFFIXES = {".go", ".md", ".example", ".yaml", ".yml", ".json"}
-
+# ── scaffold marker processing ──────────────────────────────────────────
 
 def process_all_markers(root, repo_choice):
     """Process scaffold markers in all eligible files."""
@@ -153,17 +167,15 @@ def _process_markers(file_path, text, choice):
     while i < len(lines):
         stripped = lines[i].strip()
 
-        # scaffold:begin block → delete until scaffold:end
         if _match_begin(stripped):
             i += 1
             while i < len(lines) and not _match_end(lines[i].strip()):
                 i += 1
             if i >= len(lines):
                 sys.exit(f"error: unmatched scaffold:begin in {file_path}")
-            i += 1  # skip end marker
+            i += 1
             continue
 
-        # scaffold:if <choice> block
         if _match_if(stripped):
             block_choice = _if_choice(stripped)
             i += 1
@@ -176,10 +188,9 @@ def _process_markers(file_path, text, choice):
                     i += 1
             if i >= len(lines):
                 sys.exit(f"error: unmatched scaffold:if in {file_path}")
-            i += 1  # skip endif
+            i += 1
             continue
 
-        # Line with scaffold:strip suffix → delete
         if _match_strip(lines[i]):
             i += 1
             continue
@@ -190,75 +201,200 @@ def _process_markers(file_path, text, choice):
     return '\n'.join(result)
 
 
-# Marker recognizers — handle both // and # comment styles.
-_CMT = r'\s*(?://|#)\s*scaffold:'
-
-
 def _match_begin(line):
     return bool(re.match(fr'^{_CMT}begin', line))
-
 
 def _match_end(line):
     return bool(re.match(fr'^{_CMT}end', line))
 
-
 def _match_if(line):
     return bool(re.match(fr'^{_CMT}if\s+\w+', line))
-
 
 def _if_choice(line):
     m = re.match(fr'^{_CMT}if\s+(\w+)', line)
     return m.group(1) if m else ""
 
-
 def _match_endif(line):
     return bool(re.match(fr'^{_CMT}endif', line))
-
 
 def _match_strip(line):
     return bool(re.search(fr'{_CMT}strip\s*$', line))
 
 
-# ── module_repo.go transformations ────────────────────────────────────
+# ── adapter flattening ──────────────────────────────────────────────────
 
-# Imports that are dead when a given implementation is chosen.
-_UNUSED_WHEN_JET = {"repo/sqlc"}
-_UNUSED_WHEN_SQLC = {"repo/jet", "go-jet/jet"}
+def flatten_adapter(root, choice):
+    """Move the chosen adapter's files from …/repo/<choice>/ up into …/repo/.
+
+    The template ships two implementations under internal/adapter/repo/<choice>/.
+    In the output project only one remains, so the subdirectory layer is
+    unnecessary.  This function moves files, renames gen/ to <choice>gen/ (so
+    the directory name matches the generated package name), and updates
+    sqlc.yaml for the sqlc case.
+
+    Does NOT update Go import paths — call update_all_go_imports afterwards.
+    Must run before replace_module_path so sqlc.yaml paths still reference
+    the template source layout.
+    """
+    adapter_dir = Path(root) / _REPO_DIR / choice
+    repo_dir = Path(root) / _REPO_DIR
+
+    if not adapter_dir.exists():
+        return
+
+    _move_adapter_files(adapter_dir, repo_dir, choice)
+    _move_subdirs_up(adapter_dir, repo_dir, choice)
+    # adapter_dir is now empty — remove it.
+    shutil.rmtree(str(adapter_dir))
+
+    if choice == "sqlc":
+        _update_sqlc_yaml(root)
 
 
-def clean_dead_imports(root, choice):
-    """Remove import lines for the unselected repo implementation."""
-    repo_file = Path(root) / "internal/assembly/module_repo.go"
+def _move_adapter_files(adapter_dir, repo_dir, choice):
+    """Move .go files one level up, changing package <choice> → repo.
+
+    The package declaration is matched with a ^…$ line anchor so it only
+    replaces the actual declaration line — not occurrences inside comments
+    (e.g. "… emits in package sqlcgen").
+    """
+    for go_file in adapter_dir.glob("*.go"):
+        content = go_file.read_text()
+        content = re.sub(
+            rf'^package {re.escape(choice)}\s*$',
+            'package repo',
+            content, flags=re.MULTILINE)
+        dest = repo_dir / go_file.name
+        dest.write_text(content)
+        go_file.unlink()
+
+
+def _move_subdirs_up(adapter_dir, repo_dir, choice):
+    """Move subdirectories (gen/, query/) up into repo/.
+
+    gen/ is renamed to <choice>gen/ so the directory name matches the
+    generated package name (sqlcgen, jetgen).  Other subdirectories keep
+    their original name (e.g. query/).
+
+    If a destination already exists it is removed first — this is
+    defense-in-depth; no two subdirectories should ever map to the same
+    target name with the current template layout.
+    """
+    # Sorted for deterministic behaviour across platforms / filesystems.
+    for subdir in sorted(adapter_dir.iterdir()):
+        if not subdir.is_dir():
+            continue
+        new_name = f"{choice}gen" if subdir.name == "gen" else subdir.name
+        dest = repo_dir / new_name
+        if dest.exists():
+            shutil.rmtree(str(dest))
+        shutil.move(str(subdir), str(dest))
+
+
+def _update_sqlc_yaml(root):
+    """Update sqlc.yaml paths to reflect the flattened layout.
+
+    Uses regex anchored to the YAML key so it tolerates whitespace variations
+    while still being precise about which field is being updated.
+    """
+    sqlc_yaml = Path(root) / _SQLC_YAML
+    if not sqlc_yaml.exists():
+        return
+    content = sqlc_yaml.read_text()
+    # queries: key is at YAML indent level 4 (under the list item).
+    content = re.sub(
+        r'^(\s{4}queries:\s*")[^"]*(")',
+        rf'\1{_REPO_DIR}/query\2',
+        content, flags=re.MULTILINE)
+    # out: key is at YAML indent level 8 (under gen: > go:).
+    content = re.sub(
+        r'^(\s{8}out:\s*")[^"]*(")',
+        rf'\1{_REPO_DIR}/sqlcgen\2',
+        content, flags=re.MULTILINE)
+    sqlc_yaml.write_text(content)
+
+
+# ── module_repo.go transformations ──────────────────────────────────────
+
+def transform_module_repo(root):
+    """Apply module_repo.go-specific transformations.
+
+    Dead-import removal is no longer needed — imports are guarded by
+    scaffold:if markers in the template source.  Only function renames and
+    the cfg Config parameter drop remain.
+    """
+    repo_file = Path(root) / _MODULE_REPO_FILE
     if not repo_file.exists():
         return
-    dead = _UNUSED_WHEN_SQLC if choice == "sqlc" else _UNUSED_WHEN_JET
-    lines = repo_file.read_text().split('\n')
-    result = [l for l in lines if not _is_dead_import(l, dead)]
-    repo_file.write_text('\n'.join(result))
 
-
-def _is_dead_import(line, patterns):
-    return any(p in line for p in patterns)
-
-
-def rename_repo_func(root, choice):
-    """Rename provideJet* / provideSqlc* → provide*,
-    and drop the cfg Config parameter from provideRepo."""
-    repo_file = Path(root) / "internal/assembly/module_repo.go"
     content = repo_file.read_text()
 
+    # Rename provide* functions — drop the implementation prefix.
     content = content.replace("provideJetDBBridge", "provideDBBridge")
     content = content.replace("provideSqlcDBBridge", "provideDBBridge")
     content = content.replace("provideJetRepo", "provideRepo")
     content = content.replace("provideSqlcRepo", "provideRepo")
 
+    # Drop the cfg Config parameter — the dispatch function is gone,
+    # so the selected implementation no longer receives it.
     content = content.replace(
         "func provideRepo(c *dig.Container, cfg Config) error {",
         "func provideRepo(c *dig.Container) error {")
+
     repo_file.write_text(content)
 
 
-# ── template processing ───────────────────────────────────────────────
+# ── import path & type reference updates ────────────────────────────────
+
+def update_all_go_imports(root, choice):
+    """Update import paths and type references in every .go file.
+
+    Runs after flatten_adapter has moved files and transform_module_repo has
+    cleaned up module_repo.go.  At this point only the chosen adapter remains,
+    so import paths that pointed to …/repo/<choice> need to point to …/repo
+    directly, and type references like <choice>.Foo become repo.Foo.
+
+    Must run before replace_module_path so the import-path patterns still
+    match the template module name (go-app-template).
+    """
+    old_adapter_pkg = f"{MODULE_OLD}/{_REPO_DIR}/{choice}"
+    new_adapter_pkg = f"{MODULE_OLD}/{_REPO_DIR}"
+    old_gen_pkg = f"{MODULE_OLD}/{_REPO_DIR}/{choice}/gen"
+    new_gen_pkg = f"{MODULE_OLD}/{_REPO_DIR}/{choice}gen"
+
+    for go_file in Path(root).rglob("*.go"):
+        content = go_file.read_text()
+        if (old_adapter_pkg not in content and old_gen_pkg not in content
+                and f"{choice}." not in content):
+            continue
+
+        modified = False
+
+        # Replace gen import first — it is the longer, more specific path.
+        if old_gen_pkg in content:
+            content = content.replace(old_gen_pkg, new_gen_pkg)
+            modified = True
+
+        # Anchor with closing quote so …/repo/sqlc" does NOT match
+        # the already-replaced …/repo/sqlcgen".
+        if old_adapter_pkg in content:
+            content = content.replace(
+                old_adapter_pkg + '"', new_adapter_pkg + '"')
+            modified = True
+
+        # Type references: <choice>.Foo → repo.Foo.  Safe because files
+        # inside the adapter package don't use the <choice>. prefix for
+        # their own types, and the gen package uses a different alias
+        # (<choice>gen, not <choice>).
+        if f"{choice}." in content:
+            content = content.replace(f"{choice}.", "repo.")
+            modified = True
+
+        if modified:
+            go_file.write_text(content)
+
+
+# ── template processing ─────────────────────────────────────────────────
 
 def process_templates(root, name, description):
     """For each .tmpl file, generate a file without the .tmpl suffix
@@ -271,67 +407,101 @@ def process_templates(root, name, description):
         dest.write_text(content)
 
 
-# ── cleanup ────────────────────────────────────────────────────────────
+# ── post-processing cleanup ─────────────────────────────────────────────
 
-def cleanup(root, choice):
-    """Delete the unselected repo directory, clear docs, etc."""
+def delete_unselected_adapter(root, choice):
+    """Remove the adapter implementation that was not chosen."""
     other = "sqlc" if choice == "jet" else "jet"
-    other_dir = Path(root) / "internal/adapter/repo" / other
+    other_dir = Path(root) / _REPO_DIR / other
     if other_dir.exists():
         shutil.rmtree(other_dir)
 
+    # sqlc.yaml belongs to the sqlc adapter — delete it when jet is chosen.
     if choice == "jet":
-        sqlc_yaml = Path(root) / "sqlc.yaml"
+        sqlc_yaml = Path(root) / _SQLC_YAML
         if sqlc_yaml.exists():
             sqlc_yaml.unlink()
 
-    docs_dir = Path(root) / "docs"
-    if docs_dir.exists():
-        for item in docs_dir.iterdir():
-            if item.is_dir():
-                shutil.rmtree(item)
-            else:
-                item.unlink()
 
-    # Remove .tmpl scaffolding — they've already been rendered into the
-    # real files by process_templates().  The output project doesn't need them.
+def clear_docs(root):
+    """Empty the docs/ directory.  The template's design notes don't belong
+    in the generated project."""
+    docs_dir = Path(root) / _DOCS_DIR
+    if not docs_dir.exists():
+        return
+    for item in docs_dir.iterdir():
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+
+
+def remove_tmpl_files(root):
+    """Delete every .tmpl file — they have already been rendered into the
+    real files by process_templates()."""
     for tmpl in Path(root).rglob("*.tmpl"):
         tmpl.unlink()
 
 
-# ── git init ───────────────────────────────────────────────────────────
+# ── git init ─────────────────────────────────────────────────────────────
 
 def init_git(root, name):
     """Initialize a new git repository and make an initial commit."""
-    subprocess.run(["git", "init"], cwd=root,
-                   capture_output=True, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=root,
-                   capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m",
-         f"chore: created from go-app-template\n\nProject: {name}"],
-        cwd=root, capture_output=True, check=True)
+    _run(["git", "init"], cwd=root, desc="git init")
+    _run(["git", "add", "-A"], cwd=root, desc="git add")
+    _run(["git", "commit", "-m",
+          f"chore: created from go-app-template\n\nProject: {name}"],
+         cwd=root, desc="git commit")
 
 
-# ── go mod tidy ────────────────────────────────────────────────────────
+# ── go mod tidy ──────────────────────────────────────────────────────────
 
 def go_mod_tidy(root):
-    subprocess.run(["go", "mod", "tidy"], cwd=root,
-                   capture_output=True, check=True)
+    _run(["go", "mod", "tidy"], cwd=root, desc="go mod tidy")
 
 
-# ── main ───────────────────────────────────────────────────────────────
+def _run(cmd, *, cwd, desc):
+    """Run *cmd* in *cwd*; exit with a clean message on failure."""
+    try:
+        subprocess.run(cmd, cwd=cwd, capture_output=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode() if exc.stderr else "(no output)"
+        sys.exit(f"error: {desc} failed: {stderr}")
+    except FileNotFoundError:
+        sys.exit(f"error: {desc} failed: command not found — {cmd[0]!r}")
+
+
+# ── main ─────────────────────────────────────────────────────────────────
+#
+# Pipeline ordering is critical — each step sets up preconditions for the
+# next.  Summary of dependencies:
+#
+#   fix_container          must run before  process_all_markers
+#     (markers delete the provideRepo dispatch; container.go must already
+#      reference it directly)
+#
+#   process_all_markers    must run before  transform_module_repo
+#     (markers delete scaffold:if blocks; dead-import removal and func
+#      renaming assume the surviving block is already the right one)
+#
+#   flatten_adapter        must run before  update_all_go_imports
+#     (physical files must be at their new locations so import paths are
+#      rewritten to point to the right place)
+#
+#   flatten_adapter        must run before  replace_module_path
+#   update_all_go_imports  must run before  replace_module_path
+#     (import-path patterns still reference MODULE_OLD = go-app-template)
+#
+#   process_templates      must run before  remove_tmpl_files
+#     (.tmpl files must be rendered before they are deleted)
 
 def main():
     args = parse_args()
     src = os.path.dirname(os.path.realpath(__file__))
 
-    # --dir is the parent directory; the project always lands at <dir>/<name>.
-    # This way '--dir .' means ./<name>, never the current directory itself.
     parent = os.path.abspath(args.dir or os.path.dirname(src))
     dst = os.path.join(parent, args.name)
 
-    # Guard: refuse if the project directory already exists.
     if os.path.exists(dst):
         sys.exit(
             f"error: {dst!r} already exists.\n"
@@ -343,15 +513,38 @@ def main():
     print(f"Creating {args.name} → {dst}")
     print(f"  repo: {args.repo}")
 
+    # 1. Materialise the template.
     copy_template(src, dst)
 
+    # 2. Rewrite container.go before markers delete the dispatch function.
     fix_container(dst)
+
+    # 3. Resolve scaffold markers (if/begin/strip).
     process_all_markers(dst, args.repo)
-    clean_dead_imports(dst, args.repo)
-    rename_repo_func(dst, args.repo)
+
+    # 4. Flatten the chosen adapter — move files, rename gen/, update yaml.
+    flatten_adapter(dst, args.repo)
+
+    # 5. Clean module_repo.go: dead imports, func renames, blank-line tidy.
+    transform_module_repo(dst)
+
+    # 6. Rewrite import paths and type references across all .go files.
+    update_all_go_imports(dst, args.repo)
+
+    # 7. Replace the module name (go-app-template → project name).
     replace_module_path(dst, args.name)
+
+    # 8. Render .tmpl placeholders.
     process_templates(dst, args.name, args.description)
-    cleanup(dst, args.repo)
+
+    # 9. Delete everything that belongs to the unselected adapter.
+    delete_unselected_adapter(dst, args.repo)
+
+    # 10. Remove template-only artifacts.
+    clear_docs(dst)
+    remove_tmpl_files(dst)
+
+    # 11. Initialise git and tidy modules.
     init_git(dst, args.name)
     go_mod_tidy(dst)
 
