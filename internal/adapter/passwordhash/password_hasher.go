@@ -2,7 +2,12 @@
 // IPasswordHasher port (one-way password hashing).
 package passwordhash
 
-import "golang.org/x/crypto/bcrypt"
+import (
+	"github.com/ikonglong/go-apperror"
+	"golang.org/x/crypto/bcrypt"
+
+	"go-app-template/internal/application"
+)
 
 // PasswordHasher implements application.IPasswordHasher with bcrypt.
 //
@@ -21,7 +26,9 @@ func NewPasswordHasher(cost int) *PasswordHasher {
 func (h *PasswordHasher) Hash(plain string) (string, error) {
 	out, err := bcrypt.GenerateFromPassword([]byte(plain), h.Cost)
 	if err != nil {
-		return "", err
+		return "", apperror.NewInternal("passwordhash.hash",
+			apperror.WithMessage("hashing password"),
+			apperror.WithCause(err))
 	}
 	return string(out), nil
 }
@@ -33,3 +40,6 @@ func (h *PasswordHasher) Hash(plain string) (string, error) {
 func (h *PasswordHasher) Compare(hash, plain string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain))
 }
+
+// Compile-time check that *PasswordHasher satisfies the IPasswordHasher port.
+var _ application.IPasswordHasher = (*PasswordHasher)(nil)

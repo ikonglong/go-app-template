@@ -11,13 +11,13 @@ import (
 // SignUpCmd creates a fresh Account from password-credential signup.
 // OAuth signup is a separate use case and out of scope here.
 //
-// Concurrent-uniqueness gap: the existence checks below race against
+// Concurrent-uniqueness gate: the existence checks below race against
 // concurrent inserts. The database UNIQUE constraints on email and phone
-// remain the authoritative guard, but the resulting libpq error is not yet
-// translated to ErrAccountCredentialTaken in the persistence adapter —
-// that translation is a planned follow-up. Until then the rare losing
-// writer surfaces a generic 500. See repo CLAUDE.md error_handling_guide
-// for the planned translation point.
+// remain the authoritative backstop. When a concurrent writer wins the
+// race, the persistence adapter translates the unique-violation into a
+// RemoteError(AlreadyExists); wrapRepoErr below wraps that into
+// ErrAccountCredentialTaken — the same sentinel assertCredentialAvailable
+// returns for a straight finder hit.
 type SignUpCmd struct {
 	repo   domain.IAccountRepo
 	hasher IPasswordHasher
@@ -68,7 +68,7 @@ func (c *SignUpCmd) Run(ctx context.Context, in SignUpInput) (SignUpOutput, erro
 		c.clock.Now(),
 	)
 	if err := c.repo.Add(ctx, acct); err != nil {
-		return SignUpOutput{}, err
+		return SignUpOutput{}, wrapRepoErr(err)
 	}
 	return SignUpOutput{Account: acct}, nil
 }
@@ -96,9 +96,13 @@ func (c *SignUpCmd) assertCredentialAvailable(ctx context.Context, email, phone 
 // or ErrAccountCredentialTaken (someone already owns it). The finder
 // contract is (nil, nil) for absence — nil account means "free", any
 // non-nil account means "taken".
+//
+// Operational errors from the finder are wrapped via wrapRepoErr so
+// RemoteErrors from the persistence adapter don't reach the Interfaces
+// layer unwrapped.
 func (c *SignUpCmd) assertUnused(acct *domain.Account, err error) error {
 	if err != nil {
-		return err
+		return wrapRepoErr(err)
 	}
 	if acct != nil {
 		return domain.ErrAccountCredentialTaken

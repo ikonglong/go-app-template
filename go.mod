@@ -6,7 +6,7 @@ require (
 	github.com/cloudwego/hertz v0.10.4
 	github.com/go-jet/jet/v2 v2.14.1
 	github.com/google/uuid v1.6.0
-	github.com/ikonglong/go-apperror v0.1.0
+	github.com/ikonglong/go-apperror v0.1.2
 	github.com/lib/pq v1.12.3
 	github.com/oklog/ulid/v2 v2.1.1
 	go.uber.org/dig v1.19.0

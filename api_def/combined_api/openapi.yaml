@@ -1,0 +1,626 @@
+openapi: 3.1.1
+info:
+  title: APIService
+  version: 1.0.0
+paths:
+  /api/v1/characters:
+    get:
+      description: Mixin attaching the standard 4xx/5xx error responses to an operation.
+      operationId: ListCharacters
+      parameters:
+        - name: limit
+          in: query
+          description: |-
+            This specifies a limit on the number of objects to return, ranging
+            between 1 and 100.
+          schema:
+            type: integer
+            maximum: 100
+            minimum: 1
+            description: |-
+              This specifies a limit on the number of objects to return, ranging
+              between 1 and 100.
+            format: int32
+        - name: starting_after
+          in: query
+          description: >-
+            A cursor to use in pagination. starting_after is an object ID that
+
+            defines your place in the list. For example, if you make a list
+
+            request and receive 100 objects, ending with obj_foo, your
+            subsequent
+
+            call can include starting_after=obj_foo to fetch the next page of
+
+            the list.
+          schema:
+            type: string
+            description: >-
+              A cursor to use in pagination. starting_after is an object ID that
+
+              defines your place in the list. For example, if you make a list
+
+              request and receive 100 objects, ending with obj_foo, your
+              subsequent
+
+              call can include starting_after=obj_foo to fetch the next page of
+
+              the list.
+        - name: ending_before
+          in: query
+          description: |-
+            A cursor to use in pagination. ending_before is an object ID that
+            defines your place in the list. For example, if you make a list
+            request and receive 100 objects, starting with obj_bar, your
+            subsequent call can include ending_before=obj_bar to fetch the
+            previous page of the list.
+          schema:
+            type: string
+            description: |-
+              A cursor to use in pagination. ending_before is an object ID that
+              defines your place in the list. For example, if you make a list
+              request and receive 100 objects, starting with obj_bar, your
+              subsequent call can include ending_before=obj_bar to fetch the
+              previous page of the list.
+        - name: order
+          in: query
+          description: |-
+            Default sort order.
+            Note: Regardless of this parameter, **the returned list is always
+            sorted in ascending order by time/ID (oldest to newest)** for a
+            natural reading experience.
+            This parameter only determines **the entry point of the initial
+            request** (when neither starting_after nor ending_before is
+            provided):
+            - asc: Start from the beginning of the timeline (oldest). The first
+              request returns the oldest N items (e.g. [1, 2, 3]).
+            - desc: Start from the end of the timeline (newest). The first
+              request returns the newest N items (e.g. [4, 5, 6]).
+            Different endpoints may have different default strategies.
+          schema:
+            $ref: '#/components/schemas/SortOrder'
+        - name: gender
+          in: query
+          description: Optional gender filter
+          schema:
+            type: string
+            description: Optional gender filter
+        - name: ethnicity
+          in: query
+          description: Optional ethnicity filter
+          schema:
+            type: string
+            description: Optional ethnicity filter
+        - name: age_group
+          in: query
+          description: Optional age group filter
+          schema:
+            type: string
+            description: Optional age group filter
+        - name: tag
+          in: query
+          description: >-
+            Legacy single-tag filter; prefer repeating `tags` for AND semantics
+            (Director).
+          schema:
+            type: string
+            description: >-
+              Legacy single-tag filter; prefer repeating `tags` for AND
+              semantics (Director).
+        - name: scope
+          in: query
+          description: >-
+            `system` = platform presets (default). `user-upload` = current
+            user's self-upload digital humans (requires Medeo-User-Id).
+          schema:
+            $ref: '#/components/schemas/CharacterScope'
+        - name: project_id
+          in: query
+          description: 'When `scope=user-upload`, filter by Medeo project id.'
+          schema:
+            type: string
+            description: 'When `scope=user-upload`, filter by Medeo project id.'
+        - name: tags
+          in: query
+          description: >-
+            AND tag filter: repeat query key `tags`, e.g.
+            `?tags=country:Italy&tags=occupation:miner`
+          style: form
+          schema:
+            type: array
+            items:
+              type: string
+            description: >-
+              AND tag filter: repeat query key `tags`, e.g.
+              `?tags=country:Italy&tags=occupation:miner`
+          explode: true
+      responses:
+        '200':
+          description: ListCharacters 200 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCharactersResp'
+        '400':
+          description: HTTP4xxResp 400 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: HTTP5xxResp 500 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+        - Character
+    post:
+      description: Mixin attaching the standard 4xx/5xx error responses to an operation.
+      operationId: CreateCharacter
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCharacterReq'
+        required: true
+      responses:
+        '200':
+          description: CreateCharacter 200 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Character'
+        '400':
+          description: HTTP4xxResp 400 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: HTTP5xxResp 500 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+        - Character
+  '/api/v1/characters/{character_id}':
+    delete:
+      description: Mixin attaching the standard 4xx/5xx error responses to an operation.
+      operationId: DeleteCharacter
+      parameters:
+        - name: character_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: DeleteCharacter 200 response
+        '400':
+          description: HTTP4xxResp 400 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: HTTP5xxResp 500 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+        - Character
+    get:
+      description: Mixin attaching the standard 4xx/5xx error responses to an operation.
+      operationId: GetCharacter
+      parameters:
+        - name: character_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: GetCharacter 200 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Character'
+        '400':
+          description: HTTP4xxResp 400 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: HTTP5xxResp 500 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+        - Character
+    put:
+      description: Mixin attaching the standard 4xx/5xx error responses to an operation.
+      operationId: UpdateCharacter
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCharacterReq'
+        required: true
+      parameters:
+        - name: character_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: UpdateCharacter 200 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Character'
+        '400':
+          description: HTTP4xxResp 400 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: HTTP5xxResp 500 response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+        - Character
+components:
+  schemas:
+    Character:
+      type: object
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        scope:
+          $ref: '#/components/schemas/CharacterScope'
+        gender:
+          $ref: '#/components/schemas/Gender'
+        thumbnail_image_id:
+          type: string
+        thumbnail_storage_key:
+          type: string
+        ref_image_ids:
+          type: array
+          items:
+            type: string
+        ethnicity:
+          type: string
+        age_group:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        sort_order:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        third_party_id:
+          type: string
+          description: >-
+            Third-party asset id when registered (e.g. after CreateAsset); may
+            be absent.
+        third_party_asset:
+          $ref: '#/components/schemas/ThirdPartyAssetSnapshot'
+    CharacterScope:
+      type: string
+      enum:
+        - user
+        - system
+        - user-upload
+    CreateCharacterReq:
+      type: object
+      description: >-
+        Request body for `POST /api/v2/characters` (current user's custom
+        character).
+      properties:
+        display_name:
+          type: string
+        description:
+          type: string
+          description: 'Optional; if omitted, server stores `display_name` as description.'
+        thumbnail_image_id:
+          type: string
+        project_id:
+          type: string
+          description: 'When set, ties ownership to a Medeo project for scoped listing.'
+        gender:
+          $ref: '#/components/schemas/Gender'
+        ref_image_ids:
+          type: array
+          items:
+            type: string
+        ethnicity:
+          type: string
+        age_group:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+        - display_name
+        - thumbnail_image_id
+    Error:
+      type: object
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        case:
+          type: string
+        message:
+          type: string
+          description: |-
+            A developer-facing error message, which should be in English.
+            It must not be used as a user-facing error message.
+        details: {}
+    ErrorCode:
+      type: string
+      description: >-
+        Error code for API users.
+
+        - 0 OK
+
+            HTTP Mapping: 200 OK
+        - 1 OP_CANCELLED means the operation was cancelled, typically by the
+        caller.
+
+            HTTP Mapping: 499 Client Closed Request
+        - 2 Unknown error. For example, this error may be returned when
+            a 'Status' value received from another address space belongs to
+            an error space that is not known in this address space. Also
+            errors raised by APIs that do not return enough error information
+            may be converted to this error.
+
+            HTTP Mapping: 500 Internal Server Error
+        - 3 ILLEGAL_INPUT means that the client specified an illegal input.
+            Note that this differs from `FAILED_PRECONDITION`. `ILLEGAL_INPUT` indicates
+            arguments that are problematic regardless of the state of the system
+            (e.g., a malformed file name).
+
+            HTTP Mapping: 400 Bad Request
+        - 4 TIMEOUT means the deadline expired before the operation could
+        complete.
+            For operations that change the state of the system, this error may be returned
+            even if the operation has completed successfully. For example, a successful
+            response from a server could have been delayed long enough for the deadline
+            to expire.
+
+            HTTP Mapping: 504 Gateway Timeout
+        - 5 NOT_FOUND means that some requested entity (e.g., file or directory
+        was not found).
+
+            Note to server developers: if a request is denied for an entire class
+            of users, such as gradual feature rollout or undocumented allowlist,
+            `NOT_FOUND` may be used. If a request is denied for some users within
+            a class of users, such as user-based access control, `PermissionDenied`
+            must be used.
+
+            HTTP Mapping: 404 Not Found
+        - 6 ALREADY_EXISTS means that the entity that a client attempted to
+        create
+            (e.g., file or directory already exists).
+
+            HTTP Mapping: 409 Conflict
+        - 7 PERMISSION_DENIED means that the caller does not have permission to
+        execute the specified
+            operation. `PERMISSION_DENIED` must not be used for rejections caused by
+            exhausting some resource (use `RESOURCE_EXHAUSTED` instead for those errors).
+            `PERMISSION_DENIED` must not be used if the caller can not be identified
+            (use `UNAUTHENTICATED` instead for those errors. This error code does not
+            imply the request is valid or the requested entity exists or satisfies
+            other pre-conditions.
+
+            HTTP Mapping: 403 Forbidden
+        - 8  RESOURCE_EXHAUSTED means that some resource has been exhausted,
+        perhaps
+             a per-user quota, or perhaps the entire file system is out of space.
+
+             HTTP Mapping: 429 Too Many Requests
+        - 9  FAILED_PRECONDITION means that the operation was rejected because
+        the system
+             is not in a state required for the operation's execution. For example,
+             the directory to be deleted is non-empty, a rmdir operation is applied to
+             a non-directory, etc.
+
+             Service implementors can use the following guidelines to decide
+             between `FAILED_PRECONDITION`, `OP_ABORTED`, and `UNAVAILABLE`:
+             a) Use `UNAVAILABLE` if the client can retry just the failing call.
+             b) Use `OP_ABORTED` if the client should retry at a higher level. For
+                example, when a client-specified test-and-set fails, indicating the
+                client should restart a read-modify-write sequence.
+             c) Use `FAILED_PRECONDITION` if the client should not retry until
+                the system state has been explicitly fixed. For example, if a "rmdir"
+                fails because the directory is non-empty, `FAILED_PRECONDITION`
+                should be returned since the client should not retry unless
+                the files are deleted from the directory.
+
+             HTTP Mapping: 400 Bad Request
+        - 10 OP_ABORTED means that the operation was aborted, typically due to a
+        concurrency
+             issue such as a sequencer check failure or transaction abort.
+
+             See the guidelines above for deciding between `FAILED_PRECONDITION`,
+             `OP_ABORTED`, and `UNAVAILABLE`.
+
+             HTTP Mapping: 409 Conflict
+        - 11 OUT_OF_RANGE means that the operation was attempted past the valid
+        range.
+             E.g., seeking or reading past end-of-file.
+
+             Unlike `ILLEGAL_INPUT`, this error indicates a problem that may
+             be fixed if the system state changes. For example, a 32-bit file
+             system will generate `ILLEGAL_INPUT` if asked to read at an
+             offset that is not in the range [0,2^32-1], but it will generate
+             `OUT_OF_RANGE` if asked to read from an offset past the current
+             file size.
+
+             There is a fair bit of overlap between `FAILED_PRECONDITION` and
+             `OUT_OF_RANGE`. We recommend using `OUT_OF_RANGE` (the more specific
+             error when it applies so that callers who are iterating through
+             a space can easily look for an `OUT_OF_RANGE` error to detect when
+             they are done.
+
+             HTTP Mapping: 400 Bad Request
+        - 12 OP_UNIMPLEMENTED means that the operation is defined, but not
+        implemented
+             or not supported/enabled in this service.
+
+             HTTP Mapping: 501 Not Implemented
+        - 13 Internal error. This means that some invariants expected by the
+             underlying system have been broken. This error code is reserved
+             for serious errors.
+
+             HTTP Mapping: 500 Internal Server Error
+        - 14 UNAVAILABLE means that the service is currently unavailable. This
+        is
+             most likely a transient condition, which can be corrected by retrying
+             with a backoff. Note that it is not always safe to retry
+             non-idemponent operations.
+
+             See the guidelines above for deciding between `FAILED_PRECONDITION`,
+             `OP_ABORTED`, and `UNAVAILABLE`.
+
+             HTTP Mapping: 503 Service Unavailable
+        - 15 ILLEGAL_STATE means that unrecoverable data loss or corruption.
+
+             HTTP Mapping: 500 Internal Server Error
+        - 16 UNAUTHENTICATED means that the request does not have valid
+        authentication
+             credentials for the operation.
+
+            HTTP Mapping: 401 Unauthorized
+        - 29 ILLEGAL_ARG means that the arguments passed to a server-internal
+        operation is illegal.
+
+             HTTP Mapping: 500 Internal Server Error
+        - 30 AUTHORIZATION_EXPIRED means a user's authorization expired, and it
+        is
+             needed to log-in again and reauthorize.
+
+             HTTP Mapping: 401 Unauthorized
+      enum:
+        - '0'
+        - '1'
+        - '2'
+        - '3'
+        - '4'
+        - '5'
+        - '6'
+        - '7'
+        - '8'
+        - '9'
+        - '10'
+        - '11'
+        - '12'
+        - '13'
+        - '14'
+        - '15'
+        - '16'
+        - '29'
+        - '30'
+    Gender:
+      type: string
+      enum:
+        - male
+        - female
+        - neutral
+    ListCharactersResp:
+      type: object
+      description: Common pagination response fields
+      properties:
+        has_more:
+          type: boolean
+          description: |-
+            Whether or not there are more elements available after this set. If
+            false, this set comprises the end of the list.
+        next_page_cursor:
+          type: string
+          description: >-
+            Cursor for the next page: the object ID of the last item in this
+            page.
+
+            Pass it as the `starting_after` query parameter on a subsequent
+            request
+
+            to fetch the following page. Present when `has_more` is true;
+            omitted
+
+            when this page is the end of the list.
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/Character'
+      required:
+        - has_more
+        - list
+    SortOrder:
+      type: string
+      enum:
+        - asc
+        - desc
+    ThirdPartyAssetSnapshot:
+      type: object
+      description: >-
+        Third-party asset outcome surfaced on create success when registration
+        was awaited.
+      properties:
+        status:
+          type: string
+          description: >-
+            `Active` when the character row was written after GetAsset confirmed
+            availability.
+      required:
+        - status
+    UpdateCharacterReq:
+      type: object
+      properties:
+        display_name:
+          type: string
+        description:
+          type: string
+        gender:
+          $ref: '#/components/schemas/Gender'
+        thumbnail_image_id:
+          type: string
+        ref_image_ids:
+          type: array
+          items:
+            type: string
+        ethnicity:
+          type: string
+        age_group:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        sort_order:
+          type: integer
+          format: int32
+        third_party_id:
+          type: string

@@ -1,0 +1,8 @@
+{
+  "inputs": [
+    {
+      "inputFile": "../server_api/build/smithy/server-api/openapi/APIService.openapi.json"
+    }
+  ],
+  "output": "./openapi.yaml"
+}

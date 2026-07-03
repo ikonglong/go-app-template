@@ -26,8 +26,8 @@ var ErrAccountNotFound = apperror.NewNotFound(
 // ErrAccountCredentialTaken is returned by SignUp when the supplied email or
 // phone already belongs to an existing account. Carries case
 // "account_credential_taken" so a client/UI can swap the generic "already
-// registered" message for a CTA into the password-recovery flow — the
-// worked example in error_handling_guide.md §4.6. The Message stays generic
+// registered" message for a CTA into the password-recovery flow. The
+// Message stays generic
 // on purpose; the response should not echo which specific credential clashed
 // (helps reduce credential-enumeration noise).
 var ErrAccountCredentialTaken = apperror.NewAlreadyExists(

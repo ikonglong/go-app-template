@@ -38,8 +38,8 @@ type signUpReq struct {
 }
 
 // SignUp implements POST /accounts. Structural validation happens here at
-// the boundary (per CLAUDE.md: "validate user input at the inbound
-// adapter"); the application service trusts the inputs it receives.
+// the boundary — validate external input at the inbound adapter so the
+// layers inside can trust the inputs they receive.
 func (h *AccountHandler) SignUp(ctx context.Context, c *app.RequestContext) {
 	var req signUpReq
 	if err := c.BindJSON(&req); err != nil {

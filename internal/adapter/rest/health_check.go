@@ -12,8 +12,8 @@ import (
 
 // healthReadyEvent names the readiness-probe operation. Pure operation
 // name; the failure mode lives in the AppError's Code, never in the event
-// string (error-handling guide §6.2). On a failed probe it is the event
-// of the NewUnavailable error that renderError logs.
+// string. On a failed probe it is the event of the NewUnavailable error
+// that renderError logs.
 const healthReadyEvent = "health.ready"
 
 const (
@@ -27,10 +27,10 @@ const (
 	readinessPingTimeout = 800 * time.Millisecond
 )
 
-// HealthCheckResponse is the body shared by every process-health endpoint.
+// HealthCheckResp is the body shared by every process-health endpoint.
 // Checks is optional and stays nil on liveness responses — only readiness,
 // which actually pings downstream dependencies, fills it in.
-type HealthCheckResponse struct {
+type HealthCheckResp struct {
 	Status    string            `json:"status"`
 	Service   string            `json:"service"`
 	Version   string            `json:"version"`
@@ -66,7 +66,7 @@ func (h *HealthCheckHandler) Register(r route.IRouter) {
 // dependency is touched on purpose — readiness is the place for that, so
 // a transient database hiccup never restarts the container.
 func (h *HealthCheckHandler) Alive(_ context.Context, c *app.RequestContext) {
-	c.JSON(consts.StatusOK, &HealthCheckResponse{
+	c.JSON(consts.StatusOK, &HealthCheckResp{
 		Status:    "alive",
 		Service:   serviceName,
 		Version:   serviceVersion,
@@ -96,7 +96,7 @@ func (h *HealthCheckHandler) Ready(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	c.JSON(consts.StatusOK, &HealthCheckResponse{
+	c.JSON(consts.StatusOK, &HealthCheckResp{
 		Status:    "ready",
 		Service:   serviceName,
 		Version:   serviceVersion,

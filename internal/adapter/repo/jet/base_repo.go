@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-jet/jet/v2/postgres"
 	"github.com/go-jet/jet/v2/qrm"
+	"github.com/ikonglong/go-apperror"
 	"github.com/lib/pq"
 )
 
@@ -35,12 +36,17 @@ type baseRepo[D any, R any] struct {
 	mapper IMapper[D, R]
 	idOf   func(*D) string
 
-	// uniqueViolation maps a Postgres unique-constraint name to the domain
-	// sentinel that should be returned when *that specific* constraint fires.
-	// Lookup misses fall through to propagating the raw libpq error — only
-	// constraints the aggregate has explicit semantics for get translated.
-	// Nil map disables translation entirely.
-	uniqueViolation map[string]error
+	// uniqueViolation maps a Postgres unique-constraint name to the Code
+	// used when translating it to a RemoteError. Constraints not in this
+	// map fall through to translateError, which classifies the error by
+	// SQLSTATE. A nil map disables translation entirely — all errors
+	// go through translateError.
+	uniqueViolation map[string]apperror.Code
+
+	// eventPrefix is the "{service}.{aggregate}" prefix for RemoteError
+	// events, e.g. "postgres.account". The concrete repo supplies it; it
+	// is shared by every translateXxx call from this baseRepo.
+	eventPrefix string
 }
 
 func (r *baseRepo[D, R]) Add(ctx context.Context, e *D) error {
@@ -129,21 +135,66 @@ func (r *baseRepo[D, R]) findOne(ctx context.Context, where postgres.BoolExpress
 	return r.mapper.ToDomain(&dest), nil
 }
 
-// translateConstraintErr converts a libpq unique-violation into the
-// aggregate's matching domain sentinel when uniqueViolation has an entry
-// for the constraint that fired. All other errors (including unique
-// violations on constraints not listed in the map) propagate verbatim so
-// the caller still sees the raw cause for unexpected failures.
+// translateConstraintErr converts a libpq unique-violation into a
+// RemoteError when uniqueViolation maps the constraint that fired. All
+// other errors go through translateError, which classifies them by
+// SQLSTATE and wraps them as RemoteError.
 func (r *baseRepo[D, R]) translateConstraintErr(err error) error {
-	if r.uniqueViolation == nil {
-		return err
-	}
 	var pqErr *pq.Error
 	if !errors.As(err, &pqErr) || pqErr.Code != pgUniqueViolation {
-		return err
+		return r.translateError(err)
 	}
-	if mapped, ok := r.uniqueViolation[pqErr.Constraint]; ok {
-		return mapped
+	if r.uniqueViolation != nil {
+		if _, ok := r.uniqueViolation[pqErr.Constraint]; ok {
+			return apperror.NewRemoteAlreadyExists(r.eventPrefix,
+				apperror.RemoteWithMessage(pqErr.Message),
+				apperror.RemoteWithCause(err))
+		}
 	}
-	return err
+	return r.translateError(err)
+}
+
+// translateError wraps a non-constraint database error as a RemoteError.
+// Connection and session-level failures (SQLSTATE class 08, 57) map to
+// CodeUnavailable; deadlock and serialization failures (class 40) map to
+// CodeConflict; everything else maps to CodeInternal. The raw error is
+// always preserved as the RemoteError's cause for diagnosis.
+func (r *baseRepo[D, R]) translateError(err error) error {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return apperror.NewRemoteUnavailable(r.eventPrefix,
+			apperror.RemoteWithCause(err))
+	}
+	code := classifyPgError(string(pqErr.Code))
+	switch code {
+	case apperror.CodeUnavailable:
+		return apperror.NewRemoteUnavailable(r.eventPrefix,
+			apperror.RemoteWithCause(err))
+	case apperror.CodeConflict:
+		return apperror.NewRemoteConflict(r.eventPrefix,
+			apperror.RemoteWithCause(err))
+	default:
+		return apperror.NewRemoteInternal(r.eventPrefix,
+			apperror.RemoteWithCause(err))
+	}
+}
+
+// classifyPgError maps a Postgres SQLSTATE (5-char string, e.g. "23505")
+// to the closest standard Code. It only distinguishes the classes that
+// carry actionable semantics for cross-cutting logic (retry, alerting);
+// all others return CodeInternal.
+func classifyPgError(code string) apperror.Code {
+	if len(code) < 2 {
+		return apperror.CodeInternal
+	}
+	switch code[:2] {
+	case "08": // Connection Exception
+		return apperror.CodeUnavailable
+	case "57": // Operator Intervention (e.g. server shutdown)
+		return apperror.CodeUnavailable
+	case "40": // Transaction Rollback (deadlock, serialization failure)
+		return apperror.CodeConflict
+	default:
+		return apperror.CodeInternal
+	}
 }

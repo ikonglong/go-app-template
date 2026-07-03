@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/ikonglong/go-apperror"
 	"github.com/lib/pq"
 
 	sqlcgen "go-app-template/internal/adapter/repo/sqlc/gen"
@@ -18,13 +19,18 @@ import (
 const pgUniqueViolation = "23505"
 
 // accountUniqueViolation maps each unique constraint on the account
-// table to its domain meaning. All three are credential clashes and map
-// to the same sentinel. Lookup misses fall through to the raw error.
-var accountUniqueViolation = map[string]error{
-	"account_email_key":                     domain.ErrAccountCredentialTaken,
-	"account_phone_key":                     domain.ErrAccountCredentialTaken,
-	"account_provider_provider_user_id_key": domain.ErrAccountCredentialTaken,
+// table to the Code used when translating it to a RemoteError. All three
+// are credential clashes → CodeAlreadyExists. Constraints not in this
+// map fall through to translateError.
+var accountUniqueViolation = map[string]apperror.Code{
+	"account_email_key":                     apperror.CodeAlreadyExists,
+	"account_phone_key":                     apperror.CodeAlreadyExists,
+	"account_provider_provider_user_id_key": apperror.CodeAlreadyExists,
 }
+
+// accountEventPrefix is the "{service}.{aggregate}" prefix for RemoteError
+// events constructed by this adapter.
+const accountEventPrefix = "postgres.account"
 
 // AccountRepo persists domain.Account using sqlc-generated queries against
 // PostgreSQL. It is the sqlc counterpart to internal/adapter/repo/jet.AccountRepo
@@ -153,18 +159,64 @@ func (r *AccountRepo) mapRow(row sqlcgen.Account, err error) (*domain.Account, e
 }
 
 // translateConstraintErr converts a libpq unique-violation on a known
-// account constraint into the matching domain sentinel; anything else
-// (including unique violations on other tables, or non-unique errors)
-// propagates verbatim.
+// account constraint into a RemoteError(AlreadyExists); anything else
+// goes through translateError. The application layer wraps the RemoteError
+// into the matching domain sentinel (ErrAccountCredentialTaken).
 func translateConstraintErr(err error) error {
 	var pqErr *pq.Error
 	if !errors.As(err, &pqErr) || pqErr.Code != pgUniqueViolation {
-		return err
+		return translateError(err)
 	}
-	if mapped, ok := accountUniqueViolation[pqErr.Constraint]; ok {
-		return mapped
+	if _, ok := accountUniqueViolation[pqErr.Constraint]; ok {
+		return apperror.NewRemoteAlreadyExists(accountEventPrefix,
+			apperror.RemoteWithMessage(pqErr.Message),
+			apperror.RemoteWithCause(err))
 	}
-	return err
+	return translateError(err)
+}
+
+// translateError wraps a non-constraint database error as a RemoteError.
+// Connection and session-level failures (SQLSTATE class 08, 57) map to
+// CodeUnavailable; deadlock and serialization failures (class 40) map to
+// CodeConflict; everything else maps to CodeInternal. The raw error is
+// always preserved as the RemoteError's cause for diagnosis.
+func translateError(err error) error {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return apperror.NewRemoteUnavailable(accountEventPrefix,
+			apperror.RemoteWithCause(err))
+	}
+	switch classifyPgError(string(pqErr.Code)) {
+	case apperror.CodeUnavailable:
+		return apperror.NewRemoteUnavailable(accountEventPrefix,
+			apperror.RemoteWithCause(err))
+	case apperror.CodeConflict:
+		return apperror.NewRemoteConflict(accountEventPrefix,
+			apperror.RemoteWithCause(err))
+	default:
+		return apperror.NewRemoteInternal(accountEventPrefix,
+			apperror.RemoteWithCause(err))
+	}
+}
+
+// classifyPgError maps a Postgres SQLSTATE (5-char string, e.g. "23505")
+// to the closest standard Code. It only distinguishes the classes that
+// carry actionable semantics for cross-cutting logic (retry, alerting);
+// all others return CodeInternal.
+func classifyPgError(code string) apperror.Code {
+	if len(code) < 2 {
+		return apperror.CodeInternal
+	}
+	switch code[:2] {
+	case "08": // Connection Exception
+		return apperror.CodeUnavailable
+	case "57": // Operator Intervention (e.g. server shutdown)
+		return apperror.CodeUnavailable
+	case "40": // Transaction Rollback (deadlock, serialization failure)
+		return apperror.CodeConflict
+	default:
+		return apperror.CodeInternal
+	}
 }
 
 // Compile-time check that *AccountRepo satisfies the IAccountRepo port.

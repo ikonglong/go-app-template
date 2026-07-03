@@ -210,7 +210,7 @@ func envOrBool(key string, def bool) bool {
 
 // loadDotenv parses KEY=VALUE lines and exports them as env vars, skipping
 // blanks and # comments. It is intentionally minimal — same shape as the
-// db-migrations shell scripts — and already-set env vars win, so a
+// db_migrations shell scripts — and already-set env vars win, so a
 // container's injected vars override anything left in a committed .env.
 // Quoted values have a single layer of surrounding "/' stripped; anything
 // more elaborate (escapes, multiline) is out of scope.

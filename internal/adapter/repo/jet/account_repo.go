@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-jet/jet/v2/postgres"
 	"github.com/go-jet/jet/v2/qrm"
+	"github.com/ikonglong/go-apperror"
 
 	"go-app-template/internal/adapter/repo/jet/gen/test/public/record"
 	"go-app-template/internal/adapter/repo/jet/gen/test/public/table"
@@ -32,14 +33,15 @@ func NewAccountRepo(db qrm.DB, mapper IMapper[domain.Account, record.Account]) *
 			idCol:       table.Account.ID,
 			mapper:      mapper,
 			idOf:        func(a *domain.Account) string { return a.ID() },
+				eventPrefix: "postgres.account",
 			// All three uniques carry the same domain meaning: the
 			// supplied credential is already registered. The application
 			// pre-checks via FindByEmail / FindByPhone, but a concurrent
 			// writer winning the race lands here — that's the backstop.
-			uniqueViolation: map[string]error{
-				"account_email_key":                     domain.ErrAccountCredentialTaken,
-				"account_phone_key":                     domain.ErrAccountCredentialTaken,
-				"account_provider_provider_user_id_key": domain.ErrAccountCredentialTaken,
+			uniqueViolation: map[string]apperror.Code{
+				"account_email_key":                     apperror.CodeAlreadyExists,
+				"account_phone_key":                     apperror.CodeAlreadyExists,
+				"account_provider_provider_user_id_key": apperror.CodeAlreadyExists,
 			},
 		},
 	}

@@ -1,0 +1,128 @@
+# go-app-template
+
+A production-ready Go application template built on **hexagonal architecture**
+(ports & adapters). It carries thin, simple business features by design — its
+purpose is to give complex, feature-rich applications a genuinely useful
+starting point.
+
+## Quick Start
+
+```bash
+cp .env.example .env        # edit DATABASE__USER and DATABASE__NAME
+go run ./cmd/server         # listens on :8080
+```
+
+The server reads `.env` at startup and fails fast if required database settings
+are missing or malformed.
+
+## Architecture
+
+Hexagonal (ports & adapters), with a flat tier-based layout:
+
+```
+cmd/server/          Entry point — thin: config → logger → container → run
+internal/
+  domain/            Domain core: aggregates, business rules, repository ports
+  application/       Use cases (command-oriented), orchestration
+  adapter/           Adapter tier, one package per capability
+    rest/            Driving: HTTP handlers, middleware, error→HTTP mapping
+    repo/            Driven:  persistence (jet + sqlc parallel implementations)
+    passwordhash/    Driven:  bcrypt password hashing
+  common/            Business-agnostic utilities: clock, idgen, logging
+  assembly/          Wiring root: dig container, config, lifecycle
+```
+
+Dependencies always flow inward toward `domain/`. Full details:
+`.claude/CLAUDE.md`.
+
+## Tech Stack
+
+| Concern | Choice |
+|---|---|
+| HTTP framework | [Hertz](https://github.com/cloudwego/hertz) |
+| Database | PostgreSQL |
+| Query builder / codegen | [go-jet](https://github.com/go-jet/jet) + [sqlc](https://sqlc.dev) (two parallel adapters) |
+| DI | [dig](https://github.com/uber-go/dig) |
+| Logging | `log/slog` (structured, text or JSON, console or rolling file) |
+| Error model | [`go-apperror`](https://github.com/ikonglong/go-apperror) (standard codes, AppError, RemoteError) |
+| API definition | [Smithy](https://smithy.io/2.0/) → OpenAPI → [Scalar](https://scalar.com) docs |
+| Migrations | [goose](https://github.com/pressly/goose) |
+
+## Project Conventions
+
+**Naming.** `I` prefix on every interface (`IAccountRepo`). Constructors return
+the concrete type. Domain concepts lead type and file names. Sentinel errors per
+aggregate, built via `go-apperror` factories.
+
+**Error handling.** Universal framework realized in Go. See
+`.claude/error_handling.md`.
+
+**Logging.** Structured via `slog`, level wrappers require an `event` parameter
+as the primary aggregation key. See `docs/logging-design.md`.
+
+**Validation.** Layered: strict structural checks at the inbound adapter, relaxed
+trust inside, business rules in the domain layer.
+
+**Time.** Always read from the injected `clock.IClock`, never `time.Now()`
+directly. All times are UTC.
+
+Full conventions: `.claude/CLAUDE.md`.
+
+## Database Migrations
+
+```bash
+./db_migrations/migrate.sh status     # check current version
+./db_migrations/migrate.sh up         # apply pending migrations
+./db_migrations/migrate.sh create add_orders_table   # author a new migration
+./db_migrations/gen.sh                # regenerate jet code
+```
+
+Guidelines: `.claude/db_migrations.md` (safe SQL) and `.claude/rules/codegen.md`
+(tooling).
+
+## API Design
+
+```bash
+# Build Smithy models → OpenAPI spec
+cd api_def/server_api && smithy build && cd .. && make merge
+
+# Serve interactive docs
+npx @scalar/cli document serve api_def/combined_api/openapi.yaml --port 8080
+```
+
+Guide: `.claude/rules/api_design.md`.
+
+## Configuration
+
+| Key | Default | Purpose |
+|---|---|---|
+| `SERVER__HOST` | `0.0.0.0` | Listen address |
+| `SERVER__PORT` | `8080` | Listen port |
+| `LOG__FORMAT` | `json` | `text` (local) or `json` (deploy) |
+| `LOG__LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `LOG__OUTPUT` | `console` | Comma-separated: `console`, `file`, or `console,file` |
+| `DATABASE__HOST` | `localhost` | |
+| `DATABASE__PORT` | `5432` | |
+| `DATABASE__NAME` | *required* | |
+| `DATABASE__USER` | *required* | |
+| `DATABASE__PASSWORD` | *(optional)* | Leave empty for trust/peer auth |
+
+See `.env.example` for the full template with comments.
+
+## Documentation Map
+
+| What | Where |
+|---|---|
+| Architecture & conventions | `.claude/CLAUDE.md` |
+| Error handling (Go + go-apperror) | `.claude/error_handling.md` |
+| Database migrations (safe SQL) | `.claude/db_migrations.md` |
+| DB migrations tooling & codegen | `.claude/rules/codegen.md` |
+| Domain layer coding guide | `.claude/rules/domain.md` |
+| Persistence layer coding guide | `.claude/rules/persistence.md` |
+| API design (Smithy → OpenAPI → Scalar) | `.claude/rules/api_design.md` |
+| Logging design & decisions | `docs/logging-design.md` |
+| Error logging & context | `docs/error-logging-context-discussion.md` |
+| Stack trace logging research | `docs/error-stacktrace-logging-research.md` |
+| Clock concepts (wall clock, monotonic, IClock) | `docs/clock-concepts.md` |
+| DDD concepts (rule, invariant, domain logic) | `docs/ddd-business-rule-invariant-domain-logic.md` |
+| Uniqueness constraint layering | `docs/uniqueness-constraint-layering-discussion.md` |

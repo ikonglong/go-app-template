@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "sources": ["smithy"],
+  "maven": {
+    "dependencies": [
+      "software.amazon.smithy:smithy-openapi:1.61.0",
+      "software.amazon.smithy:smithy-openapi-traits:1.61.0",
+      "software.amazon.smithy:smithy-aws-traits:1.61.0",
+      "com.github.ikonglong:smithy-common:0.1.0"
+    ],
+    "repositories": [
+      {
+        "url": "https://repo.maven.apache.org/maven2/"
+      },
+      {
+        "url": "https://jitpack.io"
+      }
+    ]
+  },
+  "projections": {
+    "server-api": {
+      "plugins": {
+        "openapi": {
+          "service": "example#APIService",
+          "protocol": "aws.protocols#restJson1",
+          "tags": true,
+          "version": "3.1.0",
+          "useIntegerType": true
+        }
+      }
+    }
+  }
+}
