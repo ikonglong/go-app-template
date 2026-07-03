@@ -38,15 +38,37 @@ def _ignore(path, names):
 
 def copy_template(src, dst):
     """Copy template to dst, skipping excluded items."""
-    src = os.path.abspath(src)
+    # Resolve src through symlinks (always exists).
+    src = os.path.realpath(src)
+    # Resolve dst as far as possible — abspath works for nonexistent paths;
+    # realpath only on the existing prefix so we catch symlinks there.
     dst = os.path.abspath(dst)
-    if src == dst or dst.startswith(src + os.sep):
+    _dst_real = _resolve_existing(dst)
+    if src == _dst_real:
+        sys.exit(f"error: output directory {dst!r} is the same as the "
+                 f"template source — refusing to overwrite")
+    if _dst_real.startswith(src + os.sep):
         sys.exit(f"error: output directory {dst!r} is inside the template "
                  f"source — refusing to overwrite")
+    if src.startswith(_dst_real + os.sep):
+        sys.exit(f"error: template source {src!r} is inside the output "
+                 f"directory — refusing to overwrite")
     if os.path.exists(dst):
         sys.exit(f"error: {dst!r} already exists — remove it first or choose "
                  f"a different output directory")
     shutil.copytree(src, dst, ignore=_ignore)
+
+
+def _resolve_existing(path):
+    """Resolve symlinks in the longest existing prefix of *path*."""
+    path = os.path.abspath(path)
+    parts = path.split(os.sep)
+    for i in range(len(parts), 0, -1):
+        prefix = os.sep.join(parts[:i]) or os.sep  # join(['']) = '' → root
+        if os.path.exists(prefix):
+            resolved = os.path.realpath(prefix)
+            return os.path.join(resolved, *parts[i:])
+    return path  # unreachable: root always exists for absolute paths
 
 
 # ── module path replacement ───────────────────────────────────────────
@@ -289,8 +311,9 @@ def go_mod_tidy(root):
 
 def main():
     args = parse_args()
-    src = os.path.dirname(os.path.abspath(__file__))
+    src = os.path.dirname(os.path.realpath(__file__))
     dst = args.output or os.path.join(os.path.dirname(src), args.name)
+    dst = os.path.abspath(dst)
 
     print(f"Creating {args.name} → {dst}")
     print(f"  repo: {args.repo}")
