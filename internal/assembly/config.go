@@ -49,6 +49,12 @@ type Config struct {
 	DBName     string
 
 	BcryptCost int
+
+	// scaffold:begin
+	// RepoImpl selects the persistence implementation:
+	// "jet" (default) or "sqlc".
+	RepoImpl string
+	// scaffold:end
 }
 
 // LoadConfig first applies the (best-effort) .env file at path — already
@@ -76,6 +82,7 @@ func LoadConfig(dotenvPath string) Config {
 		DBPassword: os.Getenv("DATABASE__PASSWORD"),
 		DBName:     os.Getenv("DATABASE__NAME"),
 		BcryptCost: bcryptCost,
+		RepoImpl:   envOr("REPO__IMPL", "jet"), // scaffold:strip
 	}
 }
 

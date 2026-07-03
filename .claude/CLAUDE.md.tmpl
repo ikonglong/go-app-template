@@ -1,0 +1,153 @@
+# {{PROJECT_NAME}}
+
+{{PROJECT_DESCRIPTION}}
+
+## Project Overview
+
+### Architecture
+
+**Style**: Hexagonal (ports & adapters). The general, project-agnostic spec —
+layer model, dependency rules, responsibilities — is the entapp-dev plugin's
+**Architecture** guide (loaded into context at session start). This
+project *makes that style concrete*: the **Layout** and **Dependency rules**
+below are that concrete form and must stay consistent with the spec. On any
+conflict, the spec wins — surface it.
+
+**Structure ↔ style mapping** (the spec names layers; this layout maps them onto
+dirs, and flattens two of them):
+
+- **Core** (spec: Domain + Application) → `internal/domain/` + `internal/application/`.
+- **Interfaces** layer (spec: driving adapters) → `internal/adapter/rest/`. There
+  is **no top-level `interfaces/` tier**: driving and driven adapters share the
+  `adapter/` tier and are told apart by **package name** (`rest` = driving;
+  `repo`, `passwordhash` = driven), not by directory.
+- **Driven Adapters** (spec) → `internal/adapter/<capability>/`.
+- **Infrastructure** (spec) → `internal/infra/` (optional; absent today).
+- **Business-agnostic shared utilities** (spec: the "shared utilities" Domain/
+  Application may use) → `internal/common/`.
+
+### Layout
+
+Tier-consistent flat layout: **every top-level dir under `internal/` is an
+architectural tier, not a capability.** Capabilities live one level down under
+`adapter/<capability>/`. Dependencies always flow inward toward `domain/`.
+
+```
+cmd/server/          Binary entry. Thin: Config -> logger -> BuildContainer -> Invoke(Run).
+internal/
+  domain/            Domain core: entities, value objects, aggregates, business rules (including invariants), repo ports, sentinel errors.
+  application/       Use cases, command-oriented (Fowler COI): <Verb>Cmd with
+                     Run(ctx, in) (out, error). Holds application logic (orchestration);
+                     delegates domain logic to domain.
+  common/            Foundation: business-agnostic utils + interfaces (clock, idgen, log).
+                     Importable by anyone; imports nothing internal.
+  adapter/           Adapter tier. One Go package per capability.
+    rest/            Driving (inbound): Hertz HTTP handlers, error->HTTP mapping, middleware.
+    repo/            Driven (outbound): persistence (DDD Repository). jet/ + sqlc/ are
+                     parallel impls of the same ports; pick one per binary.
+    <capability>/    Driven (outbound): other capability (e.g. passwordhash)
+  assembly/          Assembly root (outside the hexagon): dig wiring, Config, lifecycle.
+                     One module_<capability>.go per capability.
+  infra/             OPTIONAL (absent today): self-authored client code; no port knowledge.
+db_migrations/       SQL migrations + scripts (ops, outside the hexagon).
+docs/                Design notes.
+.claude/             Claude Code config: project instructions, project-specific guides (error handling, db migrations), path-scoped rules.
+```
+
+### Dependency rules
+
+- `domain/` and `application/` MUST NOT import `adapter/*` or `infra/`.
+- `domain/` is the core: it may depend on `common/`, but on no other layer — and on no
+  infrastructure at all.
+- `infra/` MUST NOT import `domain/`, `application/`, or `adapter/*` — it is pure client
+  code that depends on no other layer, unaware that ports exist.
+- Adapters are the only place ports meet clients (they import a port + an SDK/infra).
+- The direction (driving vs driven) is indicated by the package name: `rest` =
+  driving; `repo`, `passwordhash` = driven. There is no `in/` vs `out/` directory
+  grouping inside `adapter/` — the distinction is purely by package name.
+- New outbound capability -> `adapter/<capability>/`, named by capability not vendor.
+  Multiple coexisting impls -> sub-package `adapter/<capability>/<impl>/`.
+
+## Working Discipline
+
+- **Plan before non-trivial work.** Architectural decisions, mass renames, destructive ops — confirm first.
+
+## Coding Guides
+
+### Naming
+
+These are **project conventions**, not Go idioms. Apply them consistently.
+
+| Rule | Example | Note |
+|---|---|---|
+| `I` prefix on every interface | `IAccountRepo`, `IRepo[T]`, `IMapper[D, R]`, `IVisitable[V]` | Deliberately against Go's idiomatic style (`Reader`/`Writer`). The team chose explicit prefix; do not drop it. |
+| Implementation types are exported | `AccountRepo`, `AccountMapper` | Constructors return the concrete type, not the interface (Go's "accept interfaces, return structs"). |
+| Compile-time interface checks | `var _ domain.IAccountRepo = (*AccountRepo)(nil)` | Adds the assertion that's lost when constructors return concrete types. Place at the file bottom. |
+| Sentinel errors per aggregate | `ErrAccountNotFound = apperror.NewNotFound(...)` | Callers branch with `errors.Is`. Built via `github.com/ikonglong/go-apperror` factories so the sentinel carries a `Code` (+ optional `Case`). |
+
+- **Domain concept first.** Lead a type / file name with the full noun phrase that names the concept (`HealthCheck`, `AccountRegistration`), not a truncation that loses it (`Health`). The role suffix (`Handler` / `Repo` / `Mapper` / …) is optional and follows the two rules below. This overrides Go's "shortest readable name" instinct when the short form drops the concept.
+- **File names — bare concept by default; add the role suffix only to disambiguate siblings in the same directory.** `domain/account.go`, `rest/health_check.go` (bare); `repo/jet/account_repo.go` + `account_mapper.go` (suffixed, because they coexist). New file → no name collision in the dir → bare; collision → give both the suffix.
+- **Type names — keep the role suffix.** `HealthCheckHandler`, not `HealthCheck`: cross-package use (`rest.HealthCheckHandler`) and sibling DTOs (`HealthCheckResp`) need the disambiguation.
+- **Adapter files & types.** Name by the port; bring in the algorithm / vendor only when several impls coexist.
+  - One impl: file = `snake_case` of the interface minus the leading `I` (`IPasswordHasher` → `password_hasher.go`); type = the interface minus `I` (`PasswordHasher`).
+  - Several impls in one package: file = algorithm / vendor (`bcrypt.go`, `argon2.go`); type = algorithm / vendor + interface minus `I` (`BcryptPasswordHasher`, `Argon2PasswordHasher`). For `repo/` this is the `jet/` + `sqlc/` sub-package split, files inside named aggregate + role.
+- **Abbreviations**: in type / var / file names, prefer `Req` / `Resp` over `Request` / `Response` (e.g. `signUpReq`, `accountResp`, `errorResp`, `error_resp.go`). The full form is reserved for stdlib / framework types we don't own (`http.Request`, `app.RequestContext`).
+
+### Comments
+
+- **Comments are a contract.** When you rename a type, update every doc comment that mentions it. When a future-tense comment ("we will eventually do X") is fulfilled, sweep it. Stale comments are worse than no comments.
+- **Doc comments say what, not how.** A type / function / method doc comment describes what it does and its contract — not its implementation.
+- **No noise comments.** Don't restate what the code already makes obvious; a comment that just paraphrases self-describing code is clutter.
+- **Put intent next to the code.** When a block's background or intent is non-obvious, comment it directly above that block, not in the enclosing function / method doc comment.
+- **Comments are self-contained.** If a fact is worth mentioning in a comment, state it directly — never through a link or a pointer to a section number in another document. Section numbers and document titles drift with every edit; a comment that says "see §X.Y" is a stale reference waiting to happen.
+
+### Error handling
+
+The general, project-agnostic framework (error model, classification, layer
+responsibilities, propagation, cross-cutting concerns) is the project's standing
+**Error Handling** guide (*企业应用错误处理指南*). Its concrete
+Go + `go-apperror` realization for this project — types, factories, idioms,
+runnable code — is @error_handling.md. On any conflict, the base
+framework wins — surface it.
+
+### Logging
+
+The guides below are **general** logging references (levels + worked examples); their examples use **unstructured** logging (format-string pseudocode). Take the level choices and semantics from them — but this app-template logs **structured** via `log/slog` (`internal/common/log/`), so emit through that logger's API and follow structured-logging best practices (key/value attributes, not string interpolation).
+
+- **Levels & best practices** — `DEBUG`: detailed diagnostic data (off in production); `INFO`: key business events and milestones; `WARN`: recoverable anomalies (retries, degraded mode, stale cache); `ERROR`: operation failed, human attention needed. Full rationale in the entapp-dev plugin's logging best-practices.
+- **Worked examples by level**, **all levels in one function (production style)**, and **state-machine transition logging** are in the entapp-dev `logging-examples` skill.
+
+### Request and internal args validation
+
+Validation is layered — guard hard at the boundary so the inside can relax:
+
+- **Interface layer (inbound `xxxReq`)** — the strict gate. Validate external input against the API IDL contract: presence, types, value ranges, formats (structural / value checks only). Every inbound `xxxReq` type carries its own `func (r *xxxReq) validate() error`; handlers call it right after `BindJSON` and route a non-nil error through `renderError`. Holds even for single-rule validators — consistency over a few saved lines.
+- **Inside the app** — the boundary already guaranteed well-formed input, so don't re-check the same args layer by layer. Trust internal callers; avoid over-defensive validation.
+- **Domain layer** — business rules and invariants live here.
+
+### Clock and Time
+
+Whenever the app needs the current time, read it from the injected `clock.IClock`
+(`internal/common/clock/`), never by calling `time.Now()` directly. Domain
+factories and use cases take the time as an argument (or hold a `Clock` field), so
+they run deterministically against a fixed-time fake in tests. `RealClock.Now()`
+returns UTC — keep time UTC throughout the app.
+
+**Exception:** framework / infrastructure code where threading a `Clock` through
+is impractical may read `time.Now()` directly — e.g. HTTP middleware timing a
+request's latency, or a low-level utility like ULID generation. Such time never
+feeds business logic and isn't worth faking, so the injection rule doesn't reach
+it.
+
+### HTTP success codes
+
+Successful requests return `200` — don't use `201` / `204` to encode create /
+no-content semantics (the outcome is in the response body).
+
+### Database migrations
+
+Migration scripts must be **safe**, **idempotent**, and **non-blocking** (assume large production tables, 100M+ rows), and every downgrade must cleanly undo its upgrade. Full guidelines: @db_migrations.md.
+
+### API design
+
+When designing or modifying API interfaces, read `.claude/rules/api_design.md` — it covers the full Smithy → OpenAPI → Scalar docs workflow, project conventions, and the shared models in `smithy-common`.

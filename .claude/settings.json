@@ -1,0 +1,15 @@
+{
+  "enabledPlugins": {
+    "entapp-dev@entapp-dev": true
+  },
+  "extraKnownMarketplaces": {
+    "entapp-dev": {
+      "source": {
+        "source": "git",
+        "repo": "ikonglong/entapp-dev",
+        "ref": "v0.1.0",
+        "url": "https://github.com/ikonglong/entapp-dev.git"
+      }
+    }
+  }
+}

@@ -41,7 +41,7 @@ func BuildContainer(cfg Config) (*dig.Container, error) {
 	for _, register := range []func(*dig.Container) error{
 		provideCommon,
 		provideDB,
-		provideRepo,
+		func(c *dig.Container) error { return provideRepo(c, cfg) },
 		providePasswordHasher,
 		provideApplication,
 		provideRest,

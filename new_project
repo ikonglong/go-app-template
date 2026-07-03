@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""Create a new project from go-app-template."""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Create a new project from go-app-template")
+    p.add_argument("name", help="Project name (e.g. my-service)")
+    p.add_argument("--description", "-d", default="",
+                   help="Project description (optional)")
+    p.add_argument("--repo", "-r", choices=["jet", "sqlc"], default="jet",
+                   help="Persistence implementation")
+    p.add_argument("--output", "-o",
+                   help="Output directory (default: ../<name>)")
+    if len(sys.argv) == 1:
+        p.print_help()
+        sys.exit(0)
+    return p.parse_args()
+
+
+# ── copy ──────────────────────────────────────────────────────────────
+
+EXCLUDE = {".git", ".env", ".DS_Store", ".zed", "logs", ".claude/plans",
+            "CLAUDE.md", "README.md", "settings.local.json"}
+
+
+def _ignore(path, names):
+    return [n for n in names if n in EXCLUDE]
+
+
+def copy_template(src, dst):
+    """Copy template to dst, skipping excluded items."""
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst, ignore=_ignore)
+
+
+# ── module path replacement ───────────────────────────────────────────
+
+MODULE_OLD = "go-app-template"
+
+
+def replace_module_path(root, name):
+    """Replace go-app-template → name in go.mod and all .go files."""
+    go_mod = Path(root) / "go.mod"
+    content = go_mod.read_text()
+    content = content.replace(f"module {MODULE_OLD}", f"module {name}")
+    go_mod.write_text(content)
+
+    for go_file in Path(root).rglob("*.go"):
+        content = go_file.read_text()
+        if MODULE_OLD in content:
+            go_file.write_text(content.replace(MODULE_OLD, name))
+
+
+# ── container.go fix ──────────────────────────────────────────────────
+
+# Marker text that uniquely identifies the template-only closure line.
+_CLOSURE_MARKER = "return provideRepo(c, cfg)"
+
+
+def fix_container(root):
+    """Replace the provideRepo closure with a direct call.
+
+    Looks for a line containing the marker and replaces it. Must run before
+    marker processing (the closure line carries no scaffold marker so order
+    doesn't matter after the fix, but running early keeps the pipeline simple).
+    Fails loudly if the marker isn't found — that means the template source
+    changed and this script needs updating.
+    """
+    container_file = Path(root) / "internal/assembly/container.go"
+    lines = container_file.read_text().split('\n')
+    found = False
+    for i, line in enumerate(lines):
+        if _CLOSURE_MARKER in line:
+            indent = line[:len(line) - len(line.lstrip())]
+            lines[i] = f"{indent}provideRepo,"
+            found = True
+            break
+    if not found:
+        sys.exit(f"error: could not find closure marker ({_CLOSURE_MARKER!r}) "
+                 f"in {container_file}")
+    container_file.write_text('\n'.join(lines))
+
+
+# ── scaffold marker processing ────────────────────────────────────────
+
+_PROCESS_SUFFIXES = {".go", ".md", ".example", ".yaml", ".yml", ".json"}
+
+
+def process_all_markers(root, repo_choice):
+    """Process scaffold markers in all eligible files."""
+    for file_path in Path(root).rglob("*"):
+        if file_path.is_dir():
+            continue
+        if file_path.suffix not in _PROCESS_SUFFIXES:
+            continue
+        content = file_path.read_text()
+        new_content = _process_markers(file_path, content, repo_choice)
+        if new_content != content:
+            file_path.write_text(new_content)
+
+
+def _process_markers(file_path, text, choice):
+    """Process scaffold markers in text. Returns modified text."""
+    lines = text.split('\n')
+    result = []
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+
+        # scaffold:begin block → delete until scaffold:end
+        if _match_begin(stripped):
+            i += 1
+            while i < len(lines) and not _match_end(lines[i].strip()):
+                i += 1
+            if i >= len(lines):
+                sys.exit(f"error: unmatched scaffold:begin in {file_path}")
+            i += 1  # skip end marker
+            continue
+
+        # scaffold:if <choice> block
+        if _match_if(stripped):
+            block_choice = _if_choice(stripped)
+            i += 1
+            if block_choice == choice:
+                while i < len(lines) and not _match_endif(lines[i].strip()):
+                    result.append(lines[i])
+                    i += 1
+            else:
+                while i < len(lines) and not _match_endif(lines[i].strip()):
+                    i += 1
+            if i >= len(lines):
+                sys.exit(f"error: unmatched scaffold:if in {file_path}")
+            i += 1  # skip endif
+            continue
+
+        # Line with scaffold:strip suffix → delete
+        if _match_strip(lines[i]):
+            i += 1
+            continue
+
+        result.append(lines[i])
+        i += 1
+
+    return '\n'.join(result)
+
+
+# Marker recognizers — handle both // and # comment styles.
+_CMT = r'\s*(?://|#)\s*scaffold:'
+
+
+def _match_begin(line):
+    return bool(re.match(fr'^{_CMT}begin', line))
+
+
+def _match_end(line):
+    return bool(re.match(fr'^{_CMT}end', line))
+
+
+def _match_if(line):
+    return bool(re.match(fr'^{_CMT}if\s+\w+', line))
+
+
+def _if_choice(line):
+    m = re.match(fr'^{_CMT}if\s+(\w+)', line)
+    return m.group(1) if m else ""
+
+
+def _match_endif(line):
+    return bool(re.match(fr'^{_CMT}endif', line))
+
+
+def _match_strip(line):
+    return bool(re.search(fr'{_CMT}strip\s*$', line))
+
+
+# ── module_repo.go transformations ────────────────────────────────────
+
+# Imports that are dead when a given implementation is chosen.
+_UNUSED_WHEN_JET = {"repo/sqlc"}
+_UNUSED_WHEN_SQLC = {"repo/jet", "go-jet/jet"}
+
+
+def clean_dead_imports(root, choice):
+    """Remove import lines for the unselected repo implementation."""
+    repo_file = Path(root) / "internal/assembly/module_repo.go"
+    if not repo_file.exists():
+        return
+    dead = _UNUSED_WHEN_SQLC if choice == "sqlc" else _UNUSED_WHEN_JET
+    lines = repo_file.read_text().split('\n')
+    result = [l for l in lines if not _is_dead_import(l, dead)]
+    repo_file.write_text('\n'.join(result))
+
+
+def _is_dead_import(line, patterns):
+    return any(p in line for p in patterns)
+
+
+def rename_repo_func(root, choice):
+    """Rename provideJet* / provideSqlc* → provide*,
+    and drop the cfg Config parameter from provideRepo."""
+    repo_file = Path(root) / "internal/assembly/module_repo.go"
+    content = repo_file.read_text()
+
+    content = content.replace("provideJetDBBridge", "provideDBBridge")
+    content = content.replace("provideSqlcDBBridge", "provideDBBridge")
+    content = content.replace("provideJetRepo", "provideRepo")
+    content = content.replace("provideSqlcRepo", "provideRepo")
+
+    content = content.replace(
+        "func provideRepo(c *dig.Container, cfg Config) error {",
+        "func provideRepo(c *dig.Container) error {")
+    repo_file.write_text(content)
+
+
+# ── template processing ───────────────────────────────────────────────
+
+def process_templates(root, name, description):
+    """For each .tmpl file, generate a file without the .tmpl suffix
+    by replacing placeholders with the project's values."""
+    for tmpl in Path(root).rglob("*.tmpl"):
+        dest = tmpl.with_suffix("")
+        content = tmpl.read_text()
+        content = content.replace("{{PROJECT_NAME}}", name)
+        content = content.replace("{{PROJECT_DESCRIPTION}}", description)
+        dest.write_text(content)
+
+
+# ── cleanup ────────────────────────────────────────────────────────────
+
+def cleanup(root, choice):
+    """Delete the unselected repo directory, clear docs, etc."""
+    other = "sqlc" if choice == "jet" else "jet"
+    other_dir = Path(root) / "internal/adapter/repo" / other
+    if other_dir.exists():
+        shutil.rmtree(other_dir)
+
+    if choice == "jet":
+        sqlc_yaml = Path(root) / "sqlc.yaml"
+        if sqlc_yaml.exists():
+            sqlc_yaml.unlink()
+
+    docs_dir = Path(root) / "docs"
+    if docs_dir.exists():
+        for item in docs_dir.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+
+
+# ── git init ───────────────────────────────────────────────────────────
+
+def init_git(root, name):
+    """Initialize a new git repository and make an initial commit."""
+    subprocess.run(["git", "init"], cwd=root,
+                   capture_output=True, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root,
+                   capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m",
+         f"chore: created from go-app-template\n\nProject: {name}"],
+        cwd=root, capture_output=True, check=True)
+
+
+# ── go mod tidy ────────────────────────────────────────────────────────
+
+def go_mod_tidy(root):
+    subprocess.run(["go", "mod", "tidy"], cwd=root,
+                   capture_output=True, check=True)
+
+
+# ── main ───────────────────────────────────────────────────────────────
+
+def main():
+    args = parse_args()
+    src = os.path.dirname(os.path.abspath(__file__))
+    dst = args.output or os.path.join(os.path.dirname(src), args.name)
+
+    print(f"Creating {args.name} → {dst}")
+    print(f"  repo: {args.repo}")
+
+    copy_template(src, dst)
+
+    fix_container(dst)
+    process_all_markers(dst, args.repo)
+    clean_dead_imports(dst, args.repo)
+    rename_repo_func(dst, args.repo)
+    replace_module_path(dst, args.name)
+    process_templates(dst, args.name, args.description)
+    cleanup(dst, args.repo)
+    init_git(dst, args.name)
+    go_mod_tidy(dst)
+
+    print(f"Done. cd {dst}")
+
+
+if __name__ == "__main__":
+    main()

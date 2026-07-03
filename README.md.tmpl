@@ -1,24 +1,12 @@
-# go-app-template
+# {{PROJECT_NAME}}
 
-A production-ready Go application template built on **hexagonal architecture**
-(ports & adapters). It carries thin, simple business features by design — its
-purpose is to give complex, feature-rich applications a genuinely useful
-starting point.
+{{PROJECT_DESCRIPTION}}
 
 ## Quick Start
 
 ```bash
 cp .env.example .env        # edit DATABASE__USER and DATABASE__NAME
 go run ./cmd/server         # listens on :8080
-```
-
-The server reads `.env` at startup and fails fast if required database settings
-are missing or malformed.
-
-## Create a New Project
-
-```bash
-./new_project my-service --repo jet --description "A new service"
 ```
 
 The server reads `.env` at startup and fails fast if required database settings
