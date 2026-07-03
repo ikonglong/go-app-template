@@ -293,6 +293,11 @@ def cleanup(root, choice):
             else:
                 item.unlink()
 
+    # Remove .tmpl scaffolding — they've already been rendered into the
+    # real files by process_templates().  The output project doesn't need them.
+    for tmpl in Path(root).rglob("*.tmpl"):
+        tmpl.unlink()
+
 
 # ── git init ───────────────────────────────────────────────────────────
 
