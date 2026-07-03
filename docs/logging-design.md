@@ -1,7 +1,9 @@
-# Go 与 Java 日志使用模式 —— 讨论记录与设计决策
+# Go 与 Java 日志使用模式 + 格式/目的地配置 —— 讨论记录与设计决策
 
-> 从对比 Java/Log4j 出发，厘清 Go/slog 惯用法，为本项目（六边形架构加 dig 装配）
-> 选定方案并落地。既是结论，也保留推导过程。
+> 上篇（§1–§8）：从对比 Java/Log4j 出发，厘清 Go/slog 惯用法，为本项目（六边形架构加
+> dig 装配）选定 logger 注入与请求级属性传播方案并落地。
+>
+> 下篇（§9）：日志的格式（text/json）与输出目的地（console/file）的 env 配置方案。
 >
 > 适用范围：`internal/common/log`（包别名 `applog`）及其调用方。
 
@@ -261,12 +263,12 @@ ctx = applog.WithLogAttrs(ctx, slog.String("component", "rest.account")) // 组�
   （`event` 必填、`msg` 可空）；经 `FromCtx` 回退，A/B 共用、调用点零改动。
 - 切换 A→B 只改 `request_logger.go` 一行；`ctxHandler` 已装 default 且对 A 无害。
 
-**推荐/待定（需拍板）：**
+**推荐/待定（截至 2026-07 状态）：**
 
-- [ ] 打开 `AddSource: true`，让 domain、自由函数即使不打 component 也有物理出处。
-- [ ] 把 B 设为活跃路径。
+- [ ] 打开 `AddSource: true`，让 domain、自由函数即使不打 component 也有物理出处。（待决策）
+- [ ] 把 B 设为活跃路径。（待决策）
 - [ ] 把 component-in-ctx 做成通用 `WithLogAttrs` 轨道，`WithRequestID` 并入，并示范
-      stamp `component`。
+      stamp `component`。（待决策）
 - [ ] （远期）`WithLogAttrs` 轨道过渡到 OpenTelemetry baggage。
 
 **四类字段各归其位**（贯穿全文的核心）：`request_id` 走 ctx 值加 handler；`source` 靠

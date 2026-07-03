@@ -1,8 +1,8 @@
 # Database Migrations
 
-Guidelines for writing database migration scripts. Assume production databases with large tables (100M+ rows). Every migration must be **safe**, **idempotent**, and **non-blocking**.
+Guidelines for writing database migration scripts. Assume production databases with large tables (100M+ rows). Every migration must be **safe** — that is, **idempotent**, **non-blocking**, and **cleanly reversible** (the three Core Guidelines below).
 
-> Scope: how to write **safe migration SQL**. For the tooling that applies migrations and regenerates code (`migrate.sh`, `gen.sh`), see `.claude/rules/codegen.md`.
+> Scope: how to write **safe migration SQL**. For the tooling that authors, applies, validates, and regenerates code from migrations (`migrate.sh`, `upgrade.sh`, `check.sh`, `gen.sh`), see `.claude/rules/codegen.md`.
 
 ## Core Guidelines
 
@@ -11,7 +11,7 @@ Guidelines for writing database migration scripts. Assume production databases w
    - `CREATE INDEX ... IF NOT EXISTS`, `DROP INDEX IF EXISTS`
    - `DROP CONSTRAINT IF EXISTS` before `ADD CONSTRAINT`
 
-2. **Non-blocking** — Never hold an `ACCESS EXCLUSIVE` lock while scanning or rewriting data. Acceptable only when the lock is held by an instant and metadata-only operation (e.g. `ADD COLUMN`).
+2. **Non-blocking** — Never hold an `ACCESS EXCLUSIVE` lock while scanning or rewriting data. Holding it is acceptable only for an instantaneous, metadata-only operation (e.g. a plain nullable `ADD COLUMN` with no default).
    - **CREATE/DROP INDEX** → use `CONCURRENTLY` (cannot run inside a transaction; must execute in autocommit mode). *(PostgreSQL-specific)*
    - **ADD COLUMN** → avoid `NOT NULL` without a default on existing large tables (rewrites the table).
    - **ADD CHECK/FK constraint** → always append `NOT VALID`, then `VALIDATE CONSTRAINT` separately if needed. `NOT VALID` skips scanning existing rows; without it, Postgres scans the entire table under an `ACCESS EXCLUSIVE` lock, blocking all reads and writes. *(PostgreSQL-specific)*

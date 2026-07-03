@@ -1,0 +1,34 @@
+services:
+  prism:
+    image: stoplight/prism:4
+    # Prism publishes no arm64 image; pin amd64 so it runs deterministically
+    # (under emulation on Apple Silicon) instead of warning at every start.
+    platform: linux/amd64
+    command: ["mock", "-h", "0.0.0.0", "-p", "4010", "--cors", "/app/openapi.yaml"]
+    ports:
+      - "4010:4010"
+    volumes:
+      - ./combined_api/openapi.yaml:/app/openapi.yaml:ro
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - api-network
+
+  scalar:
+    build:
+      context: .
+      dockerfile: docker/scalar.Dockerfile
+    ports:
+      - "8010:80"
+    # Serve the merged spec live (mounted, not baked) so `make merge` + a
+    # restart refreshes the docs without rebuilding the image.
+    volumes:
+      - ./combined_api/openapi.yaml:/usr/share/nginx/html/openapi.yaml:ro
+    depends_on:
+      - prism
+    networks:
+      - api-network
+
+networks:
+  api-network:
+    driver: bridge

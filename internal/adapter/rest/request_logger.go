@@ -16,8 +16,7 @@ const (
 	requestIDHeader = "X-Request-Id"
 
 	// requestEvent names the access-log operation. Pure operation name;
-	// status / latency / outcome live in attrs, never in the event string
-	// (error_handling_guide.md §6.2).
+	// status / latency / outcome live in attrs, never in the event string.
 	requestEvent = "rest.request"
 )
 

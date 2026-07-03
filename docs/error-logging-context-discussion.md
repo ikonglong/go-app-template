@@ -6,7 +6,7 @@
 >
 > 适用范围：`internal/common/log`（包别名 `applog`）的 `*Attrs` 调用方，尤其是
 > `internal/adapter/rest` 边界层。配套阅读：`docs/logging-design.md`（logger 装配）、
-> `.claude/error_handling_guide.md`（错误模型）。
+> `.claude/error_handling.md`（错误模型）。
 
 ## 目录
 
@@ -71,10 +71,10 @@ applog.ErrorAttrs(ctx, appErr.Event(), "request failed", applog.ErrAttrs(err)...
 
 讨论中提到「想顺便输出 stacktrace」，这里先纠正一个前提，再给取向。
 
-**事实：`apperror.AppError` 不携带 stacktrace。** 核对过库源码
-（`github.com/ikonglong/go-apperror`），`AppError` 只有 `code` / `event` /
-`case` / `message` / `details` / `cause` 以及 `AddNote`，没有任何 stack 或
-`runtime.Callers`。所以「直接取 error 的 stacktrace」无从取起。
+**事实：`apperror.AppError` 已携带 stacktrace。** `go-apperror` v0.1.0 的
+`AppError` 在构造时通过 `runtime.Callers` 采集调用栈，暴露 `StackTrace()` 方法。
+`RemoteError` 同理。所以「直接取 error 的 stacktrace」已经是可行的——需要做的
+只是在日志侧把它渲染出来。
 
 由此推导出的取向：
 
@@ -87,7 +87,7 @@ applog.ErrorAttrs(ctx, appErr.Event(), "request failed", applog.ErrAttrs(err)...
 - **真要 stack，只对未分类错误有意义**——panic、或从外部 wrap 进来的陌生 error，
   也就是走 `rest.unhandled` → `InternalError` 那条路的情况。即便要采，也作为**独立
   attr**（如 `slog.String("stack", …)`），**绝不塞进 `msg` 或 `message`**：它含
-  换行，会触发 `error_handling_guide.md` §6.3「不要在 message 里用 `\n`」（日志
+  换行，会触发 `error_handling.md`《Anti-Patterns》#4（日志
   聚合器按换行切记录，一条错误会被拆成多条）。
 
 **结论（已修订）：决定引入 stacktrace，但用最轻的方式。** 本节早先的结论是「暂不
@@ -129,7 +129,7 @@ walk 整条链、逐层把 stack 作为独立结构化 attr 输出。完整调�
   完整 body 只在排查「输入相关 bug」时偶尔有价值。
 - **问题（严重）：**
   1. **敏感数据泄露。** `signUpReq` 里就有明文 `Password`（`internal/adapter/rest/account.go:37`）。
-     无条件记完整 body＝**明文密码进日志**。`error_handling_guide.md` §4.5 / §3.4
+     无条件记完整 body＝**明文密码进日志**。`error_handling.md` §3.5 / §2.4
      明确禁止无条件记录 `Request.Body`。
   2. **体积 / 成本。** body 可能很大，放大日志量与存储成本。
   3. **高基数。** 自由数据，无法用于聚合。

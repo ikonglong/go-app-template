@@ -10,7 +10,7 @@
 > `applog`）、`internal/adapter/rest` 边界层。配套阅读：
 > `docs/logging-design.md`（logger 装配）、
 > `docs/error-logging-context-discussion.md`（msg/上下文，§3 旧结论本文修订）、
-> `.claude/error_handling_guide.md`（错误模型）。
+> `.claude/error_handling.md`（错误模型）。
 
 ## 目录
 
@@ -45,17 +45,17 @@ Go 标准库的 `errors` 不采集 stacktrace，`log/slog` 也不原生处理 st
 
 ## 2. 现状核对：库与本项目日志出口
 
-**库不带 stack。** 核对过 `github.com/ikonglong/go-apperror` 源码：`AppError`
-只有 `code` / `event` / `caseVal` / `message` / `details` / `cause` 六个字段，
-全库没有任何 `runtime.Callers`；`RemoteError` 同理。所以「直接取 error 的
-stacktrace」无从取起——库根本没采。
+**库已带 stack。** `github.com/ikonglong/go-apperror` v0.1.0 的 `AppError` 有
+`code` / `event` / `caseVal` / `message` / `details` / `cause` / `stack` 七个字段，
+构造时通过 `runtime.Callers` 采集调用栈，暴露 `StackTrace()` 方法。`RemoteError`
+同理。所以 stack 已经可获取，本文的结论——"在 `ErrAttrs` 统一渲染"——已是可行路径。
 
 **日志出口已经收口。** 本项目错误日志有单一边界：
 
 - `internal/adapter/rest/error_resp.go` 的 `renderError`：所有 REST 失败的唯一
   出口，把 error 翻译成 JSON + HTTP status，并调 `applog.ErrorAttrs(...)` 记日志。
-- `internal/common/log/err_attrs.go` 的 `ErrAttrs(err)`：按 `error_handling_guide.md`
-  §4.5 从 error 抽出结构化字段（`code` / `case` / `message`，外加 `RemoteError`
+- `internal/common/log/err_attrs.go` 的 `ErrAttrs(err)`：按 `error_handling.md`
+  §3.5 从 error 抽出结构化字段（`code` / `case` / `message`，外加 `RemoteError`
   的 `service` / `status` / `body_code` 等）。
 
 这意味着：**stack 一旦在库里采到，只需在 `ErrAttrs` 这一处统一渲染成结构化
@@ -120,7 +120,7 @@ stack**，不必每层 wrap 都采。
 - 提案 [golang/go#60873](https://github.com/golang/go/issues/60873)（在 `fmt.Errorf`
   里用 `@trace` 标记按需采点）2023-06 提出，**至今仍是 open，未被接受**。
 
-> 结论：短中期别指望标准库内置，要么自己采，要么用三方库。
+> 结论：短期内别指望标准库内置，要么自己采，要么用三方库。
 
 ---
 
@@ -151,7 +151,7 @@ leaf-only，但写日志时 walk 整条链、把每一层带 stack 的错误都�
 2. **`%+v` 整块 dump**：信息全，但**是多行字符串**。
 3. **逐层结构化**：walk `errors.Unwrap`，每层输出 `{event, code, message, frames:[…]}`。
 
-⚠️ **硬约束**：`error_handling_guide.md` §6 反模式 #3 明令「不要在 error message
+⚠️ **硬约束**：`error-handling-best-practices.md`《Anti-Patterns》#3 明令「不要在 error message
 里用 `\n`」——日志聚合器按换行切记录，一条错误会被拆成多条。因此：
 
 > **stack 绝不能塞进 `msg` 或 `message` 字段，也不要用 `%+v` 多行 dump 当字符串
@@ -175,7 +175,7 @@ leaf-only，但写日志时 walk 整条链、把每一层带 stack 的错误都�
    在自己路线图上加 ~50 行，不存在「fork 第三方并长期维护 fork」的负担——与「引入
    重型第三方依赖」完全不是一个风险量级。
 2. **已在自有错误模型上重度投资**：`Code/Case/Event` taxonomy、`RemoteError`、
-   HTTP 映射、整本 `error_handling_guide.md`，是一套团队认知已对齐的自洽模型。
+   HTTP 映射、整本 `error_handling.md`，是一套团队认知已对齐的自洽模型。
    `cockroachdb/errors` 自带另一套哲学（无 Code/Case/Event、无 RemoteError 概念）。
    引入它只有两条路，**长期看都不对**：整体替换你的模型（推翻一套自洽且已对齐的
    设计），或把它塞到 apperror 底下只用 5%（拉重依赖 + 两套错误哲学长期阻抗失配）。

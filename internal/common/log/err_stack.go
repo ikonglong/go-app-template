@@ -43,10 +43,11 @@ func StackAttrs(err error) []slog.Attr {
 		return nil
 	}
 
-	// Only AppError-led chains get a stack. When a RemoteError is the
-	// cause, the wrapping AppError's stack points at the adapter translation
-	// site rather than a useful origin, and the remote fields already come
-	// from ErrAttrs — so skip the stack whenever a RemoteError is in play.
+	// Only AppError-led chains get a stack. When a RemoteError is present
+	// in the chain (via the AppError's cause, or directly), the stack
+	// points at the translation/wrapping site rather than a useful origin,
+	// and the remote fields already carry the diagnostic signal via
+	// ErrAttrs — so skip the stack whenever a RemoteError is in play.
 	var primary *apperror.AppError
 	if !errors.As(err, &primary) {
 		return nil

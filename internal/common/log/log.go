@@ -8,8 +8,9 @@
 //   - The DebugAttrs/InfoAttrs/WarnAttrs/ErrorAttrs wrappers (this file)
 //     are the call-site API. They take ctx + a required event + an
 //     optional msg + ...slog.Attr.
-//   - ErrAttrs (err_attrs.go) turns an *AppError / *RemoteError into the
-//     structured fields prescribed by error_handling_guide.md §4.5;
+//   - ErrAttrs (err_attrs.go) turns an *AppError / *RemoteError into
+//     structured log fields (code, case, message, cause, and for
+//     RemoteError also status, body_code, body_message, retry_after);
 //     ErrGroup wraps those fields in a nested "err" group attr.
 //
 // Two interchangeable strategies carry request-scoped attrs (request_id,
@@ -78,11 +79,10 @@ func Init(w io.Writer, format, level string) (*slog.Logger, *slog.HandlerOptions
 // wrappers around slog.Logger.LogAttrs that:
 //
 //   - take event as a REQUIRED positional parameter — the operation name
-//     in "{namespace}.{operation}" form (per
-//     error_handling_guide.md §4.5: "event makes a great log primary
-//     key"). Passing "" is legal but defeats the purpose; an empty
-//     event lands in the log as `event=""` which is intentionally
-//     easy to spot in dashboards.
+//     in "{namespace}.{operation}" form. event is the primary
+//     aggregation key for dashboards and alerting: every log line
+//     pivots on it, so an empty event is intentionally conspicuous as
+//     `event=""` in structured-log output.
 //   - take msg as a free-form description that MAY be empty — common
 //     for failure logs where ErrAttrs already supplies the `message`
 //     field from the underlying AppError, and `msg` would just

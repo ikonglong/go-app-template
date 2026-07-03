@@ -4,13 +4,31 @@ An application template that demonstrates the architecture and framework. By des
 
 So judge every design and implementation decision by the standard of the complex production app this seeds — never by the template's current simplicity. Few or simple features today is no license for crude or stopgap solutions; build it the way the real, complex application would need.
 
-None of this contradicts YAGNI. YAGNI — the rule of three, and not designing for hypothetical futures — applies in full to the real applications grown from this template, where features arrive organically over time. It does not govern the template itself. The template is a proving ground that, by its nature, has only one or two call sites; read literally, the rule of three would dismiss its canonical designs as premature abstraction. But the abstraction is not speculative here — the pattern *is* the deliverable — so model it in full rather than wait for a third use that never comes.
+YAGNI — the rule of three, and not designing for hypothetical futures — applies in full to the real applications grown from this template, where features arrive organically over time. But it does **not** govern the template itself. By its nature the template has only one or two call sites; read literally, the rule of three would dismiss its canonical designs as premature abstraction. That would be the wrong call here: the abstraction is not speculative — the pattern *is* the deliverable — so model it in full rather than wait for a third use that never comes.
 
 ## Project Overview
 
 ### Architecture
 
-**Style**: Hexagonal (ports & adapters). Full spec: @architecture.md
+**Style**: Hexagonal (ports & adapters). The general, project-agnostic spec —
+layer model, dependency rules, responsibilities — is the entapp-dev plugin's
+**Architecture** guide (loaded into context at session start). This
+project *makes that style concrete*: the **Layout** and **Dependency rules**
+below are that concrete form and must stay consistent with the spec. On any
+conflict, the spec wins — surface it.
+
+**Structure ↔ style mapping** (the spec names layers; this layout maps them onto
+dirs, and flattens two of them):
+
+- **Core** (spec: Domain + Application) → `internal/domain/` + `internal/application/`.
+- **Interfaces** layer (spec: driving adapters) → `internal/adapter/rest/`. There
+  is **no top-level `interfaces/` tier**: driving and driven adapters share the
+  `adapter/` tier and are told apart by **package name** (`rest` = driving;
+  `repo`, `passwordhash` = driven), not by directory.
+- **Driven Adapters** (spec) → `internal/adapter/<capability>/`.
+- **Infrastructure** (spec) → `internal/infra/` (optional; absent today).
+- **Business-agnostic shared utilities** (spec: the "shared utilities" Domain/
+  Application may use) → `internal/common/`.
 
 ### Layout
 
@@ -21,8 +39,7 @@ architectural tier, not a capability.** Capabilities live one level down under
 ```
 cmd/server/          Binary entry. Thin: Config -> logger -> BuildContainer -> Invoke(Run).
 internal/
-  domain/            Domain core: entities, value objects, aggregates, repo ports, sentinel errors.
-                     Imports nothing internal.
+  domain/            Domain core: entities, value objects, aggregates, business rules (including invariants), repo ports, sentinel errors.
   application/       Use cases, command-oriented (Fowler COI): <Verb>Cmd with
                      Run(ctx, in) (out, error). Holds application logic (orchestration);
                      delegates domain logic to domain.
@@ -36,21 +53,22 @@ internal/
   assembly/          Assembly root (outside the hexagon): dig wiring, Config, lifecycle.
                      One module_<capability>.go per capability.
   infra/             OPTIONAL (absent today): self-authored client code; no port knowledge.
-db-migrations/       SQL migrations + scripts (ops, outside the hexagon).
+db_migrations/       SQL migrations + scripts (ops, outside the hexagon).
 docs/                Design notes.
-.claude/             Claude Code config: project instructions, architecture & coding guides, path-scoped rules.
+.claude/             Claude Code config: project instructions, project-specific guides (error handling, db migrations), path-scoped rules.
 ```
 
 ### Dependency rules
 
 - `domain/` and `application/` MUST NOT import `adapter/*` or `infra/`.
-- `domain/` references no infrastructure at all — not go-jet, `database/sql`, HTTP, or
-  time-of-day side effects (wall-clock access goes through the `clock` port).
-- `infra/` MUST NOT import `domain/` or `application/` — it is pure client code, unaware
-  that ports exist.
+- `domain/` is the core: it may depend on `common/`, but on no other layer — and on no
+  infrastructure at all.
+- `infra/` MUST NOT import `domain/`, `application/`, or `adapter/*` — it is pure client
+  code that depends on no other layer, unaware that ports exist.
 - Adapters are the only place ports meet clients (they import a port + an SDK/infra).
-- Direction is read from the package name (`rest` = driving; `repo`, `passwordhash` =
-  driven). No `in/` vs `out/` grouping inside `adapter/`.
+- The direction (driving vs driven) is indicated by the package name: `rest` =
+  driving; `repo`, `passwordhash` = driven. There is no `in/` vs `out/` directory
+  grouping inside `adapter/` — the distinction is purely by package name.
 - New outbound capability -> `adapter/<capability>/`, named by capability not vendor.
   Multiple coexisting impls -> sub-package `adapter/<capability>/<impl>/`.
 
@@ -85,24 +103,23 @@ These are **project conventions**, not Go idioms. Apply them consistently.
 - **Doc comments say what, not how.** A type / function / method doc comment describes what it does and its contract — not its implementation.
 - **No noise comments.** Don't restate what the code already makes obvious; a comment that just paraphrases self-describing code is clutter.
 - **Put intent next to the code.** When a block's background or intent is non-obvious, comment it directly above that block, not in the enclosing function / method doc comment.
+- **Comments are self-contained.** If a fact is worth mentioning in a comment, state it directly — never through a link or a pointer to a section number in another document. Section numbers and document titles drift with every edit; a comment that says "see §X.Y" is a stale reference waiting to happen.
 
 ### Error handling
 
-@error_handling_guide.md
-
-### HTTP success codes
-
-Successful requests return `200` — don't use `201` / `204` to encode create /
-no-content semantics (the outcome is in the response body).
+The general, project-agnostic framework (error model, classification, layer
+responsibilities, propagation, cross-cutting concerns) is the project's standing
+**Error Handling** guide (*企业应用错误处理指南*). Its concrete
+Go + `go-apperror` realization for this project — types, factories, idioms,
+runnable code — is @error_handling.md. On any conflict, the base
+framework wins — surface it.
 
 ### Logging
 
 The guides below are **general** logging references (levels + worked examples); their examples use **unstructured** logging (format-string pseudocode). Take the level choices and semantics from them — but this app-template logs **structured** via `log/slog` (`internal/common/log/`), so emit through that logger's API and follow structured-logging best practices (key/value attributes, not string interpolation).
 
-- **Levels & best practices**: @logging-best-practices.md
-- **What each level captures**: @logging-examples-by-level.md
-- **All levels in one function (production style)**: @logging-unified-example.md
-- **State-machine transitions**: @logging-state-machine-example.md
+- **Levels & best practices** — `DEBUG`: detailed diagnostic data (off in production); `INFO`: key business events and milestones; `WARN`: recoverable anomalies (retries, degraded mode, stale cache); `ERROR`: operation failed, human attention needed. Full rationale in the entapp-dev plugin's logging best-practices.
+- **Worked examples by level**, **all levels in one function (production style)**, and **state-machine transition logging** are in the entapp-dev `logging-examples` skill.
 
 ### Request and internal args validation
 
@@ -110,8 +127,31 @@ Validation is layered — guard hard at the boundary so the inside can relax:
 
 - **Interface layer (inbound `xxxReq`)** — the strict gate. Validate external input against the API IDL contract: presence, types, value ranges, formats (structural / value checks only). Every inbound `xxxReq` type carries its own `func (r *xxxReq) validate() error`; handlers call it right after `BindJSON` and route a non-nil error through `renderError`. Holds even for single-rule validators — consistency over a few saved lines.
 - **Inside the app** — the boundary already guaranteed well-formed input, so don't re-check the same args layer by layer. Trust internal callers; avoid over-defensive validation.
-- **Domain layer** — business rules and invariants live here; checks that need IO (e.g. uniqueness) are orchestrated by the application service.
+- **Domain layer** — business rules and invariants live here.
+
+### Clock and Time
+
+Whenever the app needs the current time, read it from the injected `clock.IClock`
+(`internal/common/clock/`), never by calling `time.Now()` directly. Domain
+factories and use cases take the time as an argument (or hold a `Clock` field), so
+they run deterministically against a fixed-time fake in tests. `RealClock.Now()`
+returns UTC — keep time UTC throughout the app.
+
+**Exception:** framework / infrastructure code where threading a `Clock` through
+is impractical may read `time.Now()` directly — e.g. HTTP middleware timing a
+request's latency, or a low-level utility like ULID generation. Such time never
+feeds business logic and isn't worth faking, so the injection rule doesn't reach
+it.
+
+### HTTP success codes
+
+Successful requests return `200` — don't use `201` / `204` to encode create /
+no-content semantics (the outcome is in the response body).
 
 ### Database migrations
 
-Migration scripts must be **safe**, **idempotent**, and **non-blocking** (assume large production tables, 100M+ rows), and every downgrade must cleanly undo its upgrade. Full guidelines: @db-migrations.md.
+Migration scripts must be **safe**, **idempotent**, and **non-blocking** (assume large production tables, 100M+ rows), and every downgrade must cleanly undo its upgrade. Full guidelines: @db_migrations.md.
+
+### API design
+
+When designing or modifying API interfaces, read `.claude/rules/api_design.md` — it covers the full Smithy → OpenAPI → Scalar docs workflow, project conventions, and the shared models in `smithy-common`.

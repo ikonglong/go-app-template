@@ -5,10 +5,6 @@ paths:
 
 # Domain Layer Coding Guide
 
-## Purity
-
-Domain code imports nothing from the rest of the project. No SQL, no HTTP, no jet, no `time.Now()`. The clock comes in as a `time.Time` value supplied by the caller — the domain stays free of side effects.
-
 ## Aggregates
 
 `Account` is the canonical example.
@@ -32,7 +28,7 @@ Every aggregate has **exactly two constructors**, with deliberate semantic disti
 | Server-managed fields | computed by the factory (e.g. `emailVerified=false`, single `now` for both timestamps) | passed in verbatim from storage |
 | Frequency | exactly **once per aggregate identity** in the system's history | every time we hydrate the aggregate from storage |
 
-`CreateAccount` with a duplicate ID is a category error (a duplicate, not an independent lifecycle), not a design choice. The "I have all the bytes back, give me the object" path is `RebuildAccount`.
+Calling `CreateAccount` twice with the same ID is a bug: it creates one identity twice rather than starting an independent lifecycle. This is never a supported path. The "I have all the bytes back, give me the object" path is `RebuildAccount`.
 
 ### Naming Rules for Repos and Factories
 
@@ -86,6 +82,7 @@ type IRepo[T any] interface {
 Aggregate-specific port embeds it and adds finders:
 
 ```go
+// internal/domain/account.go
 type IAccountRepo interface {
     IRepo[Account]
     FindByEmail(ctx context.Context, email string) (*Account, error)

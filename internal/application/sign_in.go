@@ -45,7 +45,7 @@ func (c *SignInCmd) Run(ctx context.Context, in SignInInput) (SignInOutput, erro
 
 	acct, err := finder(ctx, in.LoginID)
 	if err != nil {
-		return SignInOutput{}, err
+		return SignInOutput{}, wrapRepoErr(err)
 	}
 	if acct == nil {
 		return SignInOutput{}, domain.ErrInvalidCredentials

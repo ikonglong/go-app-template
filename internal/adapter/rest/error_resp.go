@@ -11,10 +11,10 @@ import (
 	applog "go-app-template/internal/common/log"
 )
 
-// errorResp is the wire shape for failures. Sanitized per
-// error_handling_guide.md §3.4 — Code/Case/Message only, no Cause, no
-// stack trace, no upstream transport details. Case is omitted from the
-// body when nil so the field doesn't appear as `"case": ""`.
+// errorResp is the wire shape for failures. Sanitized:
+// Code/Case/Message only, no Cause, no stack trace, no upstream
+// transport details. Case is omitted from the body when nil so the
+// field doesn't appear as `"case": ""`.
 type errorResp struct {
 	Code    string `json:"code"`
 	Case    string `json:"case,omitempty"`
@@ -26,7 +26,7 @@ type errorResp struct {
 // is mapped to a status code; handlers never call c.JSON with an HTTP
 // status themselves on the failure path.
 //
-// Any non-AppError caught here is wrapped as InternalError — that is by
+// Any non-AppError caught here is wrapped as Internal — that is by
 // design: the only way an error of unknown shape can leak this far is a
 // bug or an un-translated infrastructure error, both of which deserve
 // a generic 500 rather than a leaked stack trace.

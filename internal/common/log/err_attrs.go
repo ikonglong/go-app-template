@@ -7,22 +7,20 @@ import (
 	"github.com/ikonglong/go-apperror"
 )
 
-// ErrAttrs returns the structured-log fields prescribed by
-// error_handling_guide.md §4.5 for the given error:
+// ErrAttrs returns the structured-log fields for the given error:
 //
 //	code, case, message, cause
 //
-// plus, when the chain contains a *RemoteError, the remote-specific
-// fields:
+// plus, when the chain contains a *RemoteError with ErrResp(), the
+// remote-specific fields:
 //
-//	service, operation, status, body_code, body_message, retry_after
+//	status, body_code, body_message, retry_after
 //
-// cause is the AppError's underlying Cause() — the wrapped root error
-// (e.g. a db driver or transport failure) — included so the server-side
-// log keeps the root cause for diagnosis. It is intentionally log-only:
-// the inbound boundary's errorResp exposes just code/case/message, never
-// cause (guide §3.4 — "log them server-side; expose only Code/Case/
-// Message"). It is omitted when the error has no cause.
+// cause is the underlying Cause() — the wrapped root error (e.g. a db driver
+// or transport failure) — included so the server-side log keeps the root cause
+// for diagnosis. It is intentionally log-only: the inbound boundary's
+// errorResp exposes just code/case/message, never cause. It is
+// omitted when the error has no cause.
 //
 // Note: event is intentionally NOT emitted here. The caller (via the
 // InfoAttrs/WarnAttrs/ErrorAttrs/DebugAttrs wrappers) supplies event as
@@ -47,44 +45,39 @@ func ErrAttrs(err error) []slog.Attr {
 	}
 	attrs := make([]slog.Attr, 0, 8)
 
-	var (
-		re *apperror.RemoteError
-		ae *apperror.AppError
-	)
-
-	// When a RemoteError is the cause, surface its remote-specific fields.
-	// In go-apperror v0.2.0 the canonical *AppError wraps the RemoteError as
-	// its cause, so both are on the same errors.As chain: errors.As(&re)
-	// reaches the wrapped RemoteError and errors.As(&ae) below reaches the
-	// canonical AppError that carries code/case/message.
+	// RemoteError carries its own Code / Message / Case / Cause taxonomy.
+	// Read them directly from re; read protocol-level remote details
+	// from re.ErrResp().
+	var re *apperror.RemoteError
 	if errors.As(err, &re) {
+		if resp := re.ErrResp(); resp != nil {
+			attrs = append(attrs, slog.Int("status", resp.StatusCode()))
+			if resp.BodyCode != "" {
+				attrs = append(attrs, slog.String("body_code", resp.BodyCode))
+			}
+			if resp.BodyMessage != "" {
+				attrs = append(attrs, slog.String("body_message", resp.BodyMessage))
+			}
+			if resp.RetryAfter > 0 {
+				attrs = append(attrs, slog.Duration("retry_after", resp.RetryAfter))
+			}
+		}
 		attrs = append(attrs,
-			slog.String("service", re.Service),
-			slog.String("operation", re.Operation),
+			slog.String("code", re.Code().Name()),
+			slog.String("message", re.Message()),
 		)
-		if re.Response != nil {
-			attrs = append(attrs, slog.Int("status", re.Response.StatusCode))
+		if c := re.Case(); c != nil {
+			attrs = append(attrs, slog.String("case", c.Identifier()))
 		}
-		if re.BodyCode != "" {
-			attrs = append(attrs, slog.String("body_code", re.BodyCode))
+		if cause := re.Cause(); cause != nil {
+			attrs = append(attrs, slog.String("cause", cause.Error()))
 		}
-		if re.BodyMessage != "" {
-			attrs = append(attrs, slog.String("body_message", re.BodyMessage))
-		}
-		if re.RetryAfter > 0 {
-			attrs = append(attrs, slog.Duration("retry_after", re.RetryAfter))
-		}
+		return attrs
 	}
 
-	// The canonical AppError carries the normalized code/case/message. It is
-	// the outer layer when a RemoteError is wrapped, and the whole error
-	// otherwise. A chain that is neither an AppError nor wraps one collapses
-	// to a single "error" attr (rare — the inbound boundary wraps unknown
-	// errors as Internal before logging). Append rather than replace so any
-	// remote fields already gathered above survive an unwrapped RemoteError
-	// (which carries no canonical AppError) instead of being dropped.
+	var ae *apperror.AppError
 	if !errors.As(err, &ae) {
-		return append(attrs, slog.String("error", err.Error()))
+		return []slog.Attr{slog.String("error", err.Error())}
 	}
 
 	attrs = append(attrs,

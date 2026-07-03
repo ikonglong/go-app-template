@@ -44,7 +44,7 @@ func TestErrGroupNestsErrorFields(t *testing.T) {
 
 // cause is the wrapped root error. It must appear in the log group (so the
 // server keeps the root cause) even though the inbound boundary never puts
-// it in the response body — guide §3.4.
+// it in the response body — guide §2.4.
 func TestErrGroupIncludesCause(t *testing.T) {
 	cause := errors.New("connection refused")
 	err := apperror.NewUnavailable("health.ready",
@@ -58,29 +58,23 @@ func TestErrGroupIncludesCause(t *testing.T) {
 	}
 }
 
-// A canonical AppError wrapping a RemoteError as its cause (the go-apperror
-// v0.2.0 driven-adapter shape) must surface BOTH the remote-side fields
-// (service/operation/status/body_code/body_message/retry_after, recovered via
-// errors.As(&re)) and the canonical code/message (from the wrapping AppError,
-// recovered via errors.As(&ae)) in one flat field set.
-func TestErrAttrsSurfacesWrappedRemoteError(t *testing.T) {
-	re := &apperror.RemoteError{
-		Service:     "user-service",
-		Operation:   "GetUser",
-		Response:    &apperror.Response{StatusCode: 503, Body: []byte(`{"code":"DEGRADED"}`)},
-		BodyCode:    "DEGRADED",
-		BodyMessage: "service in maintenance",
-		RetryAfter:  30 * time.Second,
-	}
-	err := apperror.NewUnavailable("user-service.GetUser",
-		apperror.WithMessage("user-service degraded"),
-		apperror.WithCause(re),
+// A RemoteError with ErrResp set (v0.1.2 driven-adapter shape) must surface
+// BOTH the remote-side protocol fields (status/body_code/body_message/
+// retry_after, retrieved via re.ErrResp()) and RemoteError's own taxonomy
+// fields (code/message, read directly from re) in one flat field set.
+func TestErrAttrsSurfacesRemoteError(t *testing.T) {
+	re := apperror.NewRemoteUnavailable("user-service.GetUser",
+		apperror.RemoteWithMessage("user-service degraded"),
+		apperror.WithErrResp(&apperror.RemoteErrorResp{
+			Response:    &apperror.Response{StatusCode: 503, Body: []byte(`{"code":"DEGRADED"}`)},
+			BodyCode:    "DEGRADED",
+			BodyMessage: "service in maintenance",
+			RetryAfter:  30 * time.Second,
+		}),
 	)
 
-	got := groupToMap(ErrGroup(err))
+	got := groupToMap(ErrGroup(re))
 	for k, want := range map[string]string{
-		"service":      "user-service",
-		"operation":    "GetUser",
 		"status":       "503",
 		"body_code":    "DEGRADED",
 		"body_message": "service in maintenance",
@@ -94,20 +88,34 @@ func TestErrAttrsSurfacesWrappedRemoteError(t *testing.T) {
 	}
 }
 
-// A RemoteError anywhere in the chain suppresses the stack, even when the
-// canonical code is otherwise stack-worthy (Unknown here): the wrapping
-// AppError's stack points at the adapter translation site, not a useful
-// origin, and the remote fields already carry the diagnostic signal.
-func TestStackAttrsSkippedWhenRemoteErrorWrapped(t *testing.T) {
-	re := &apperror.RemoteError{
-		Service:   "user-service",
-		Operation: "GetUser",
-		Response:  &apperror.Response{StatusCode: 500},
-	}
-	err := apperror.NewUnknown("user-service.GetUser", apperror.WithCause(re))
+// A RemoteError with a cause must log that cause — same contract as AppError's
+// WithCause. The server-side log keeps the root cause for diagnosis.
+func TestErrAttrsSurfacesRemoteErrorCause(t *testing.T) {
+	cause := errors.New("connection reset by peer")
+	re := apperror.NewRemoteUnavailable("user-service.GetUser",
+		apperror.RemoteWithCause(cause),
+	)
 
-	if attrs := StackAttrs(err); attrs != nil {
-		t.Errorf("expected no stack attr when a RemoteError is wrapped, got %v", attrs)
+	got := groupToMap(ErrGroup(re))
+	if got["cause"] != "connection reset by peer" {
+		t.Errorf("cause = %q, want %q", got["cause"], "connection reset by peer")
+	}
+}
+
+// A RemoteError suppresses the stack: StackAttrs checks errors.As(err, &*AppError)
+// first and returns nil when it fails — RemoteError is not an AppError subtype,
+// so this guard works regardless of whether the RemoteError carries an ErrResp
+// or a cause. The remote fields already provide the diagnostic signal.
+func TestStackAttrsSkippedWhenRemoteErrorPresent(t *testing.T) {
+	re := apperror.NewRemoteUnknown("user-service.GetUser",
+		apperror.RemoteWithCause(errors.New("connection refused")),
+		apperror.WithErrResp(&apperror.RemoteErrorResp{
+			Response: &apperror.Response{StatusCode: 500},
+		}),
+	)
+
+	if attrs := StackAttrs(re); attrs != nil {
+		t.Errorf("expected no stack attr when a RemoteError is present, got %v", attrs)
 	}
 }
 
