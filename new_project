@@ -440,23 +440,25 @@ def delete_unselected_adapter(root, choice):
     if other_dir.exists():
         shutil.rmtree(other_dir)
 
-    # sqlc.yaml belongs to the sqlc adapter — delete it when jet is chosen.
+    # Clean up codegen/ to match the chosen adapter.
     if choice == "jet":
+        # Jet: keep gen_jet.sh, remove everything sqlc-related.
         sqlc_yaml = Path(root) / _SQLC_YAML
         if sqlc_yaml.exists():
             sqlc_yaml.unlink()
-        # Also remove the sqlc.yaml that lives inside codegen/ (the root
-        # sqlc.yaml is a symlink whose target was copied as well).
         codegen_sqlc = Path(root) / _CODEGEN_DIR / _SQLC_YAML
         if codegen_sqlc.exists():
             codegen_sqlc.unlink()
     else:
-        # sqlc: sqlc.yaml lives at the project root (standard convention).
-        # Remove codegen/ — it only contains jet's gen_jet.sh and a
-        # duplicate sqlc.yaml.
-        codegen_dir = Path(root) / _CODEGEN_DIR
-        if codegen_dir.exists():
-            shutil.rmtree(str(codegen_dir))
+        # sqlc: keep sqlc.yaml (housed in codegen/ with a root symlink
+        # for standard 'sqlc generate' invocation). Remove jet's script.
+        gen_jet = Path(root) / _GEN_JET_SH
+        if gen_jet.exists():
+            gen_jet.unlink()
+        # Create root symlink so 'sqlc generate' works without -f.
+        root_sqlc = Path(root) / _SQLC_YAML
+        if not root_sqlc.exists():
+            root_sqlc.symlink_to(f"{_CODEGEN_DIR}/{_SQLC_YAML}")
 
 
 def clear_docs(root):
