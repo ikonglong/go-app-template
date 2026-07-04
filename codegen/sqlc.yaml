@@ -1,12 +1,12 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: "db_migrations/versions"
-    queries: "internal/adapter/repo/sqlc/query"
+    schema: "../db_migrations/versions"
+    queries: "../internal/adapter/repo/sqlc/query"
     gen:
       go:
         package: "sqlcgen"
-        out: "internal/adapter/repo/sqlc/gen"
+        out: "../internal/adapter/repo/sqlc/gen"
         sql_package: "database/sql"
         emit_interface: true
         emit_pointers_for_null_types: true

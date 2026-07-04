@@ -305,14 +305,15 @@ def _update_sqlc_yaml(root):
         return
     content = sqlc_yaml.read_text()
     # queries: key is at YAML indent level 4 (under the list item).
+    # Paths are relative to codegen/sqlc.yaml, so they need ../ prefix.
     content = re.sub(
         r'^(\s{4}queries:\s*")[^"]*(")',
-        rf'\1{_REPO_DIR}/query\2',
+        rf'\1../{_REPO_DIR}/query\2',
         content, flags=re.MULTILINE)
     # out: key is at YAML indent level 8 (under gen: > go:).
     content = re.sub(
         r'^(\s{8}out:\s*")[^"]*(")',
-        rf'\1{_REPO_DIR}/sqlcgen\2',
+        rf'\1../{_REPO_DIR}/sqlcgen\2',
         content, flags=re.MULTILINE)
     sqlc_yaml.write_text(content)
 
