@@ -83,7 +83,7 @@ Full conventions: `.claude/CLAUDE.md`.
 ./db_migrations/migrate.sh status     # check current version
 ./db_migrations/migrate.sh up         # apply pending migrations
 ./db_migrations/migrate.sh create add_orders_table   # author a new migration
-./db_migrations/gen.sh                # regenerate jet code
+./codegen/gen_jet.sh                  # regenerate jet code
 ```
 
 Guidelines: `.claude/db_migrations.md` (safe SQL) and `.claude/rules/codegen.md`

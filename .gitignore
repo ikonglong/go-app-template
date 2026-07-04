@@ -30,6 +30,9 @@ go.work.sum
 # Runtime logs (LOG__OUTPUT includes "file")
 logs/
 
+# Python
+__pycache__/
+
 # Editor/IDE
 # .idea/
 # .vscode/

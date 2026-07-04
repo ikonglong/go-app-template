@@ -10,7 +10,7 @@ import (
 
 	// scaffold:if jet
 	"go-app-template/internal/adapter/repo/jet"
-	jetrec "go-app-template/internal/adapter/repo/jet/gen/test/public/record"
+	jetrec "go-app-template/internal/adapter/repo/jet/gen/record"
 	// scaffold:endif
 	// scaffold:if sqlc
 	"go-app-template/internal/adapter/repo/sqlc"

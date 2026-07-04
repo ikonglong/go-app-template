@@ -5,42 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------------------------------------------------------
-# Load database config from .env / environment (mirrors migrate.sh)
+# Load database config from shared helper
 # ---------------------------------------------------------------------------
-load_db_config() {
-    local env_file="$PROJECT_ROOT/.env"
-    local host="" port="" name="" user="" password=""
-
-    if [[ -f "$env_file" ]]; then
-        while IFS='=' read -r key value; do
-            [[ -z "$key" || "$key" == \#* ]] && continue
-            key="$(echo "$key" | xargs)"
-            value="$(echo "$value" | xargs)"
-
-            case "$key" in
-                DATABASE__HOST)     host="$value" ;;
-                DATABASE__PORT)     port="$value" ;;
-                DATABASE__NAME)     name="$value" ;;
-                DATABASE__USER)     user="$value" ;;
-                DATABASE__PASSWORD) password="$value" ;;
-            esac
-        done < "$env_file"
-    fi
-
-    : "${host:=${DATABASE__HOST:-localhost}}"
-    : "${port:=${DATABASE__PORT:-5432}}"
-    : "${name:=${DATABASE__NAME:-}}"
-    : "${user:=${DATABASE__USER:-postgres}}"
-    : "${password:=${DATABASE__PASSWORD:-}}"
-
-    if [[ -z "$name" ]]; then
-        echo "Error: DATABASE__NAME not set (.env or env)" >&2
-        exit 1
-    fi
-
-    export DSN="postgresql://${user}:${password}@${host}:${port}/${name}?sslmode=disable"
-    export DB_LABEL="${name}@${host}:${port}"
-}
+source "$PROJECT_ROOT/db_migrations/_env.sh"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -87,26 +54,44 @@ if ! command -v jet &>/dev/null; then
 fi
 
 load_db_config
+DSN="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable"
+DB_LABEL="${DB_NAME}@${DB_HOST}:${DB_PORT}"
 
 cd "$PROJECT_ROOT"
 
 # jet rejects -tables and -ignore-tables simultaneously, so only inject the
 # ignore default when the caller is not using an explicit allow-list.
+# Also extract overridden schema for the post-generation flatten step.
 user_set_tables=false
+schema="public"
 for arg in "$@"; do
     case "$arg" in
         -tables|-tables=*) user_set_tables=true ;;
+        -schema=*) schema="${arg#-schema=}" ;;
     esac
 done
 
 defaults=(
     -source=postgres
     -dsn="$DSN"
-    -schema=public
+    -schema="$schema"
     -path=./internal/adapter/repo/jet/gen
     -rel-model-path=./record
 )
 $user_set_tables || defaults+=(-ignore-tables=goose_db_version)
 
-echo "Generating jet code: ${DB_LABEL} -> ./internal/adapter/repo/jet/gen"
-exec jet "${defaults[@]}" "$@"
+gen_dir="./internal/adapter/repo/jet/gen"
+# DB_LABEL is "name@host:port" — extract the db name for path construction.
+db_name="${DB_LABEL%%@*}"
+jet_out_dir="$gen_dir/$db_name/$schema"
+
+echo "Generating jet code: ${DB_LABEL} -> $gen_dir"
+jet "${defaults[@]}" "$@"
+
+# Jet always nests output under <dbname>/<schema>/. Flatten it so generated
+# code sits directly at gen/record/ and gen/table/.
+rm -rf "$gen_dir/record" "$gen_dir/table"
+mv "$jet_out_dir/record" "$gen_dir/record"
+mv "$jet_out_dir/table" "$gen_dir/table"
+rm -rf "$gen_dir/$db_name"
+echo "Flattened: $gen_dir/record $gen_dir/table"

@@ -22,6 +22,8 @@ _CONTAINER_FILE = f"{_ASSEMBLY_DIR}/container.go"
 _MODULE_REPO_FILE = f"{_ASSEMBLY_DIR}/module_repo.go"
 _DOCS_DIR = "docs"
 _SQLC_YAML = "sqlc.yaml"
+_CODEGEN_DIR = "codegen"
+_GEN_JET_SH = f"{_CODEGEN_DIR}/gen_jet.sh"
 
 # Excluded from template copy.
 _EXCLUDE = {".git", ".env", ".DS_Store", ".zed", "logs", ".claude/plans",
@@ -314,6 +316,24 @@ def _update_sqlc_yaml(root):
     sqlc_yaml.write_text(content)
 
 
+def _update_jet_gen_path(root):
+    """Update gen_jet.sh -path to match the flattened adapter layout.
+
+    In the template source the Jet gen output goes to …/repo/jet/gen/.
+    After flatten_adapter it becomes …/repo/jetgen/.  This function
+    rewrites the -path flag inside codegen/gen_jet.sh so regeneration
+    targets the correct directory in the generated project.
+    """
+    jet_script = Path(root) / _GEN_JET_SH
+    if not jet_script.exists():
+        return
+    content = jet_script.read_text()
+    content = content.replace(
+        "-path=./internal/adapter/repo/jet/gen",
+        "-path=./internal/adapter/repo/jetgen")
+    jet_script.write_text(content)
+
+
 # ── module_repo.go transformations ──────────────────────────────────────
 
 def transform_module_repo(root):
@@ -410,7 +430,11 @@ def process_templates(root, name, description):
 # ── post-processing cleanup ─────────────────────────────────────────────
 
 def delete_unselected_adapter(root, choice):
-    """Remove the adapter implementation that was not chosen."""
+    """Remove the adapter implementation that was not chosen.
+
+    Also cleans up the codegen/ directory: the generated project only
+    needs one codegen tool (gen_jet.sh for Jet, sqlc.yaml for sqlc).
+    """
     other = "sqlc" if choice == "jet" else "jet"
     other_dir = Path(root) / _REPO_DIR / other
     if other_dir.exists():
@@ -421,6 +445,18 @@ def delete_unselected_adapter(root, choice):
         sqlc_yaml = Path(root) / _SQLC_YAML
         if sqlc_yaml.exists():
             sqlc_yaml.unlink()
+        # Also remove the sqlc.yaml that lives inside codegen/ (the root
+        # sqlc.yaml is a symlink whose target was copied as well).
+        codegen_sqlc = Path(root) / _CODEGEN_DIR / _SQLC_YAML
+        if codegen_sqlc.exists():
+            codegen_sqlc.unlink()
+    else:
+        # sqlc: sqlc.yaml lives at the project root (standard convention).
+        # Remove codegen/ — it only contains jet's gen_jet.sh and a
+        # duplicate sqlc.yaml.
+        codegen_dir = Path(root) / _CODEGEN_DIR
+        if codegen_dir.exists():
+            shutil.rmtree(str(codegen_dir))
 
 
 def clear_docs(root):
@@ -484,6 +520,10 @@ def _run(cmd, *, cwd, desc):
 #     (markers delete scaffold:if blocks; dead-import removal and func
 #      renaming assume the surviving block is already the right one)
 #
+#   flatten_adapter        must run before  _update_jet_gen_path
+#     (gen_jet.sh -path references the pre-flatten layout; must be updated
+#      after physical files move)
+#
 #   flatten_adapter        must run before  update_all_go_imports
 #     (physical files must be at their new locations so import paths are
 #      rewritten to point to the right place)
@@ -524,6 +564,10 @@ def main():
 
     # 4. Flatten the chosen adapter — move files, rename gen/, update yaml.
     flatten_adapter(dst, args.repo)
+
+    # 4a. If Jet, rewrite gen_jet.sh -path to match the flattened layout.
+    if args.repo == "jet":
+        _update_jet_gen_path(dst)
 
     # 5. Clean module_repo.go: dead imports, func renames, blank-line tidy.
     transform_module_repo(dst)

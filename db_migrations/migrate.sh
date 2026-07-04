@@ -5,48 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------------------------------------------------------
-# Load database config from environment variables / .env
+# Load database config from shared helper
 # ---------------------------------------------------------------------------
-load_db_config() {
-    local env_file="$PROJECT_ROOT/.env"
-    if [[ -f "$env_file" ]]; then
-        local host="" port="" name="" user="" password=""
-
-        while IFS='=' read -r key value; do
-            [[ -z "$key" || "$key" == \#* ]] && continue
-            key="$(echo "$key" | xargs)"
-            value="$(echo "$value" | xargs)"
-
-            case "$key" in
-                DATABASE__HOST)     host="$value" ;;
-                DATABASE__PORT)     port="$value" ;;
-                DATABASE__NAME)     name="$value" ;;
-                DATABASE__USER)     user="$value" ;;
-                DATABASE__PASSWORD) password="$value" ;;
-            esac
-        done < "$env_file"
-
-        : "${host:=${DATABASE__HOST:-localhost}}"
-        : "${port:=${DATABASE__PORT:-5432}}"
-        : "${name:=${DATABASE__NAME:-stg_medeo}}"
-        : "${user:=${DATABASE__USER:-postgres}}"
-        : "${password:=${DATABASE__PASSWORD:-}}"
-    else
-        local host="${DATABASE__HOST:-}"
-        local port="${DATABASE__PORT:-5432}"
-        local name="${DATABASE__NAME:-}"
-        local user="${DATABASE__USER:-postgres}"
-        local password="${DATABASE__PASSWORD:-}"
-
-        if [[ -z "$host" || -z "$name" ]]; then
-            echo "Error: .env not found at $env_file and DATABASE__HOST/DATABASE__NAME not set in environment" >&2
-            exit 1
-        fi
-    fi
-
-    export GOOSE_DRIVER="postgres"
-    export GOOSE_DBSTRING="postgres://${user}:${password}@${host}:${port}/${name}"
-}
+source "$SCRIPT_DIR/_env.sh"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -108,6 +69,8 @@ case "$1" in
         ;;
     *)
         load_db_config
+        export GOOSE_DRIVER="postgres"
+        export GOOSE_DBSTRING="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
         ;;
 esac
 

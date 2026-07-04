@@ -3,7 +3,7 @@ package jet
 import (
 	"time"
 
-	"go-app-template/internal/adapter/repo/jet/gen/test/public/record"
+	"go-app-template/internal/adapter/repo/jet/gen/record"
 	"go-app-template/internal/domain"
 )
 

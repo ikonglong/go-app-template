@@ -11,4 +11,6 @@ package table
 // this method only once at the beginning of the program.
 func UseSchema(schema string) {
 	Account = Account.FromSchema(schema)
+	ChatRole = ChatRole.FromSchema(schema)
+	ChatUser = ChatUser.FromSchema(schema)
 }

@@ -5,7 +5,7 @@ paths:
 
 # Code Generation & DB Migrations
 
-> Scope: the **tooling** — regenerating jet code (`gen.sh`) and authoring/applying/validating migrations (`migrate.sh`, `upgrade.sh`, `check.sh`). For how to write **safe migration SQL** (idempotent, non-blocking), see `.claude/db_migrations.md`.
+> Scope: the **tooling** — regenerating jet code (`codegen/gen_jet.sh`) and authoring/applying/validating migrations (`migrate.sh`, `upgrade.sh`, `check.sh`). For how to write **safe migration SQL** (idempotent, non-blocking), see `.claude/db_migrations.md`.
 
 ## Migrations: `migrate.sh`
 
@@ -29,10 +29,10 @@ Migration files: `versions/<timestamp>_<name>.sql` — goose-format with `-- +go
 Wraps the [go-jet](https://github.com/go-jet/jet) generator. Same `.env` loading; everything after the script name passes through to `jet`.
 
 ```bash
-./db_migrations/gen.sh                  # default: full schema, skip goose_db_version
-./db_migrations/gen.sh -tables=account  # allow-list mode
-./db_migrations/gen.sh -schema=auth     # any jet flag pass-through; later values win
-./db_migrations/gen.sh -h               # show injected defaults
+./codegen/gen_jet.sh                  # default: full schema, skip goose_db_version
+./codegen/gen_jet.sh -tables=account  # allow-list mode
+./codegen/gen_jet.sh -schema=auth     # any jet flag pass-through; later values win
+./codegen/gen_jet.sh -h               # show injected defaults
 ```
 
 ### Defaults injected
@@ -55,5 +55,5 @@ Wraps the [go-jet](https://github.com/go-jet/jet) generator. Same `.env` loading
 1. Write a goose migration in `versions/`.
 2. `./db_migrations/check.sh` — validate the new file (duplicate timestamps, goose syntax).
 3. `./db_migrations/migrate.sh up`
-4. `./db_migrations/gen.sh` — picks up the new table automatically; no edits to the script needed.
+4. `./codegen/gen_jet.sh` — picks up the new table automatically; no edits to the script needed.
 5. Add the aggregate adapter in `internal/adapter/repo/jet/` (`xxx_repo.go`, `xxx_mapper.go`) and the matching domain types in `internal/domain/`. Follow `.claude/rules/persistence.md` and `.claude/rules/domain.md`.

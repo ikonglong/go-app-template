@@ -7,8 +7,8 @@ import (
 	"github.com/go-jet/jet/v2/qrm"
 	"github.com/ikonglong/go-apperror"
 
-	"go-app-template/internal/adapter/repo/jet/gen/test/public/record"
-	"go-app-template/internal/adapter/repo/jet/gen/test/public/table"
+	"go-app-template/internal/adapter/repo/jet/gen/record"
+	"go-app-template/internal/adapter/repo/jet/gen/table"
 	"go-app-template/internal/domain"
 )
 
