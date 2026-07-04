@@ -84,6 +84,7 @@ Full conventions: `.claude/CLAUDE.md`.
 ./db_migrations/migrate.sh up         # apply pending migrations
 ./db_migrations/migrate.sh create add_orders_table   # author a new migration
 ./codegen/gen_jet.sh                  # regenerate jet code
+./codegen/gen_sqlc.sh                 # regenerate sqlc code
 ```
 
 Guidelines: `.claude/db_migrations.md` (safe SQL) and `.claude/rules/codegen.md`
