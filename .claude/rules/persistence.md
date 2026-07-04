@@ -105,4 +105,4 @@ internal/adapter/repo/jet/gen/
 ```
 
 - The package is **`record`** (not `model`). In a DDD-flavored codebase `model` means "domain model", which is the entity, not the row.
-- Never hand-edit generated files. Regenerate via `gen.sh` whenever the schema changes.
+- Never hand-edit generated files. Regenerate via `codegen/gen_jet.sh` (or `codegen/gen_sqlc.sh`) whenever the schema changes.

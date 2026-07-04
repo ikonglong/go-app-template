@@ -81,17 +81,19 @@ defaults=(
 $user_set_tables || defaults+=(-ignore-tables=goose_db_version)
 
 gen_dir="./internal/adapter/repo/jet/gen"
-# DB_LABEL is "name@host:port" — extract the db name for path construction.
-db_name="${DB_LABEL%%@*}"
-jet_out_dir="$gen_dir/$db_name/$schema"
+jet_out_dir="$gen_dir/$DB_NAME/$schema"
 
 echo "Generating jet code: ${DB_LABEL} -> $gen_dir"
 jet "${defaults[@]}" "$@"
 
 # Jet always nests output under <dbname>/<schema>/. Flatten it so generated
 # code sits directly at gen/record/ and gen/table/.
+if [[ ! -d "$jet_out_dir/record" || ! -d "$jet_out_dir/table" ]]; then
+    echo "Error: jet output not found at $jet_out_dir" >&2
+    exit 1
+fi
 rm -rf "$gen_dir/record" "$gen_dir/table"
 mv "$jet_out_dir/record" "$gen_dir/record"
 mv "$jet_out_dir/table" "$gen_dir/table"
-rm -rf "$gen_dir/$db_name"
+rm -rf "$gen_dir/$DB_NAME"
 echo "Flattened: $gen_dir/record $gen_dir/table"

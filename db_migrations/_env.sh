@@ -6,6 +6,11 @@
 # (DSN, GOOSE_DBSTRING, etc.) from these variables.
 
 load_db_config() {
+    if [[ -z "${PROJECT_ROOT:-}" ]]; then
+        echo "Error: PROJECT_ROOT must be set before calling load_db_config" >&2
+        return 1
+    fi
+
     local env_file="$PROJECT_ROOT/.env"
     local _host="" _port="" _name="" _user="" _password=""
 

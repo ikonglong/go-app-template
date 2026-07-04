@@ -2,7 +2,7 @@
 
 Guidelines for writing database migration scripts. Assume production databases with large tables (100M+ rows). Every migration must be **safe** — that is, **idempotent**, **non-blocking**, and **cleanly reversible** (the three Core Guidelines below).
 
-> Scope: how to write **safe migration SQL**. For the tooling that authors, applies, validates, and regenerates code from migrations (`migrate.sh`, `upgrade.sh`, `check.sh`, `gen.sh`), see `.claude/rules/codegen.md`.
+> Scope: how to write **safe migration SQL**. For the tooling that authors, applies, validates, and regenerates code from migrations (`migrate.sh`, `upgrade.sh`, `check.sh`, `codegen/gen_jet.sh`, `codegen/gen_sqlc.sh`), see `.claude/rules/codegen.md`.
 
 ## Core Guidelines
 
