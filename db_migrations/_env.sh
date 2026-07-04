@@ -30,14 +30,14 @@ load_db_config() {
         done < "$env_file"
     fi
 
-    DB_HOST="${_host:-${DATABASE__HOST:-localhost}}"
+    DB_HOST="${_host:-${DATABASE__HOST:-}}"
     DB_PORT="${_port:-${DATABASE__PORT:-5432}}"
     DB_NAME="${_name:-${DATABASE__NAME:-}}"
     DB_USER="${_user:-${DATABASE__USER:-postgres}}"
     DB_PASSWORD="${_password:-${DATABASE__PASSWORD:-}}"
 
-    if [[ -z "$DB_NAME" ]]; then
-        echo "Error: DATABASE__NAME not set (.env or env)" >&2
+    if [[ -z "$DB_HOST" || -z "$DB_NAME" ]]; then
+        echo "Error: DATABASE__HOST and DATABASE__NAME must be set (.env or env)" >&2
         return 1
     fi
 }
