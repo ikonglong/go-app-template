@@ -24,9 +24,9 @@ Migration files: `versions/<timestamp>_<name>.sql` — goose-format with `-- +go
 - **`upgrade.sh`** — the **non-interactive runner for Docker / Kubernetes / CI/CD**. Reads the same `.env` (`DATABASE__*`) connection and applies pending goose migrations, with retry and diagnostic output, exiting non-zero on a connection or migration failure. This is the production apply path; `migrate.sh up` is its interactive dev counterpart.
 - **`check.sh`** — validates the files under `versions/` before they are applied: it flags duplicate timestamps and runs `goose validate` (syntax + directive checks). Run it after authoring a migration and in CI.
 
-## Code Generation: `gen.sh`
+## Code Generation: `gen_jet.sh`
 
-Wraps the [go-jet](https://github.com/go-jet/jet) generator. Same `.env` loading; everything after the script name passes through to `jet`.
+Wraps the [go-jet](https://github.com/go-jet/jet) generator. Reads `.env` for DB connection; everything after the script name passes through to `jet`.
 
 ```bash
 ./codegen/gen_jet.sh                  # default: full schema, skip goose_db_version
@@ -48,12 +48,22 @@ Wraps the [go-jet](https://github.com/go-jet/jet) generator. Same `.env` loading
 
 ### Caveat: `-tables` and `-ignore-tables` are mutually exclusive
 
-`jet` rejects them together with an explicit error. `gen.sh` detects user-supplied `-tables` and drops the `-ignore-tables` default automatically. **Don't pass both manually.**
+`jet` rejects them together with an explicit error. `gen_jet.sh` detects user-supplied `-tables` and drops the `-ignore-tables` default automatically. **Don't pass both manually.**
+
+## Code Generation: `gen_sqlc.sh`
+
+Wraps [sqlc](https://github.com/sqlc-dev/sqlc). No database connection needed — sqlc reads SQL schema and query files from disk.
+
+```bash
+./codegen/gen_sqlc.sh
+```
+
+Runs `sqlc generate -f codegen/sqlc.yaml` from the project root.
 
 ## Adding a Table — checklist
 
 1. Write a goose migration in `versions/`.
 2. `./db_migrations/check.sh` — validate the new file (duplicate timestamps, goose syntax).
 3. `./db_migrations/migrate.sh up`
-4. `./codegen/gen_jet.sh` — picks up the new table automatically; no edits to the script needed.
-5. Add the aggregate adapter in `internal/adapter/repo/jet/` (`xxx_repo.go`, `xxx_mapper.go`) and the matching domain types in `internal/domain/`. Follow `.claude/rules/persistence.md` and `.claude/rules/domain.md`.
+4. Regenerate code: `./codegen/gen_jet.sh` or `./codegen/gen_sqlc.sh`.
+5. Add the aggregate adapter in `internal/adapter/repo/` (`xxx_repo.go`, `xxx_mapper.go`) and the matching domain types in `internal/domain/`. Follow `.claude/rules/persistence.md` and `.claude/rules/domain.md`.

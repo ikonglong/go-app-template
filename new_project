@@ -24,6 +24,7 @@ _DOCS_DIR = "docs"
 _SQLC_YAML = "sqlc.yaml"
 _CODEGEN_DIR = "codegen"
 _GEN_JET_SH = f"{_CODEGEN_DIR}/gen_jet.sh"
+_GEN_SQLC_SH = f"{_CODEGEN_DIR}/gen_sqlc.sh"
 
 # Excluded from template copy.
 _EXCLUDE = {".git", ".env", ".DS_Store", ".zed", "logs", ".claude/plans",
@@ -299,7 +300,7 @@ def _update_sqlc_yaml(root):
     Uses regex anchored to the YAML key so it tolerates whitespace variations
     while still being precise about which field is being updated.
     """
-    sqlc_yaml = Path(root) / _SQLC_YAML
+    sqlc_yaml = Path(root) / _CODEGEN_DIR / _SQLC_YAML
     if not sqlc_yaml.exists():
         return
     content = sqlc_yaml.read_text()
@@ -440,25 +441,21 @@ def delete_unselected_adapter(root, choice):
     if other_dir.exists():
         shutil.rmtree(other_dir)
 
-    # Clean up codegen/ to match the chosen adapter.
+    # Clean up codegen/ to match the chosen adapter.  Each adapter gets a
+    # wrapper script (gen_jet.sh / gen_sqlc.sh) that encapsulates the CLI
+    # invocation — no root symlinks needed.
     if choice == "jet":
         # Jet: keep gen_jet.sh, remove everything sqlc-related.
-        sqlc_yaml = Path(root) / _SQLC_YAML
-        if sqlc_yaml.exists():
-            sqlc_yaml.unlink()
-        codegen_sqlc = Path(root) / _CODEGEN_DIR / _SQLC_YAML
-        if codegen_sqlc.exists():
-            codegen_sqlc.unlink()
+        # _SQLC_YAML is bare; _GEN_SQLC_SH already includes codegen/.
+        for p in (Path(root) / _CODEGEN_DIR / _SQLC_YAML,
+                  Path(root) / _GEN_SQLC_SH):
+            if p.exists():
+                p.unlink()
     else:
-        # sqlc: keep sqlc.yaml (housed in codegen/ with a root symlink
-        # for standard 'sqlc generate' invocation). Remove jet's script.
+        # sqlc: keep sqlc.yaml and gen_sqlc.sh, remove jet's script.
         gen_jet = Path(root) / _GEN_JET_SH
         if gen_jet.exists():
             gen_jet.unlink()
-        # Create root symlink so 'sqlc generate' works without -f.
-        root_sqlc = Path(root) / _SQLC_YAML
-        if not root_sqlc.exists():
-            root_sqlc.symlink_to(f"{_CODEGEN_DIR}/{_SQLC_YAML}")
 
 
 def clear_docs(root):
