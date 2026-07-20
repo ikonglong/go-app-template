@@ -2,6 +2,8 @@ openapi: 3.1.1
 info:
   title: APIService
   version: 1.0.0
+security:
+  - smithy.api.httpBearerAuth: []
 paths:
   /api/v1/characters:
     get:
@@ -24,52 +26,58 @@ paths:
         - name: starting_after
           in: query
           description: >-
-            A cursor to use in pagination. starting_after is an object ID that
+            An object ID that defines your place in the list. For example, if
+            you
 
-            defines your place in the list. For example, if you make a list
+            make a list request and receive 100 objects, ending with obj_foo,
+            your
 
-            request and receive 100 objects, ending with obj_foo, your
-            subsequent
+            subsequent call can include starting_after=obj_foo to fetch the next
 
-            call can include starting_after=obj_foo to fetch the next page of
-
-            the list.
+            page of the list.
           schema:
             type: string
             description: >-
-              A cursor to use in pagination. starting_after is an object ID that
+              An object ID that defines your place in the list. For example, if
+              you
 
-              defines your place in the list. For example, if you make a list
+              make a list request and receive 100 objects, ending with obj_foo,
+              your
 
-              request and receive 100 objects, ending with obj_foo, your
-              subsequent
+              subsequent call can include starting_after=obj_foo to fetch the
+              next
 
-              call can include starting_after=obj_foo to fetch the next page of
-
-              the list.
+              page of the list.
         - name: ending_before
           in: query
-          description: |-
-            A cursor to use in pagination. ending_before is an object ID that
-            defines your place in the list. For example, if you make a list
-            request and receive 100 objects, starting with obj_bar, your
-            subsequent call can include ending_before=obj_bar to fetch the
+          description: >-
+            An object ID that defines your place in the list. For example, if
+            you
+
+            make a list request and receive 100 objects, starting with obj_bar,
+
+            your subsequent call can include ending_before=obj_bar to fetch the
+
             previous page of the list.
           schema:
             type: string
-            description: |-
-              A cursor to use in pagination. ending_before is an object ID that
-              defines your place in the list. For example, if you make a list
-              request and receive 100 objects, starting with obj_bar, your
-              subsequent call can include ending_before=obj_bar to fetch the
+            description: >-
+              An object ID that defines your place in the list. For example, if
+              you
+
+              make a list request and receive 100 objects, starting with
+              obj_bar,
+
+              your subsequent call can include ending_before=obj_bar to fetch
+              the
+
               previous page of the list.
         - name: order
           in: query
           description: |-
             Default sort order.
             Note: Regardless of this parameter, **the returned list is always
-            sorted in ascending order by time/ID (oldest to newest)** for a
-            natural reading experience.
+            sorted in ascending order by time/ID (oldest to newest).**
             This parameter only determines **the entry point of the initial
             request** (when neither starting_after nor ending_before is
             provided):
@@ -138,22 +146,56 @@ paths:
       responses:
         '200':
           description: ListCharacters 200 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListCharactersResp'
         '400':
-          description: HTTP4xxResp 400 response
+          description: HTTP4xxOutput 400 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: HTTP5xxResp 500 response
+          description: HTTP5xxOutput 500 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+      security: []
       tags:
         - Character
     post:
@@ -168,18 +210,51 @@ paths:
       responses:
         '200':
           description: CreateCharacter 200 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Character'
         '400':
-          description: HTTP4xxResp 400 response
+          description: HTTP4xxOutput 400 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: HTTP5xxResp 500 response
+          description: HTTP5xxOutput 500 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
@@ -200,13 +275,35 @@ paths:
         '200':
           description: DeleteCharacter 200 response
         '400':
-          description: HTTP4xxResp 400 response
+          description: HTTP4xxOutput 400 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: HTTP5xxResp 500 response
+          description: HTTP5xxOutput 500 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
@@ -225,18 +322,51 @@ paths:
       responses:
         '200':
           description: GetCharacter 200 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Character'
         '400':
-          description: HTTP4xxResp 400 response
+          description: HTTP4xxOutput 400 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: HTTP5xxResp 500 response
+          description: HTTP5xxOutput 500 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
@@ -261,18 +391,51 @@ paths:
       responses:
         '200':
           description: UpdateCharacter 200 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Character'
         '400':
-          description: HTTP4xxResp 400 response
+          description: HTTP4xxOutput 400 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: HTTP5xxResp 500 response
+          description: HTTP5xxOutput 500 response
+          headers:
+            Request-Id:
+              description: Identifier returned in the `Request-Id` response header.
+              schema:
+                type: string
+                maxLength: 36
+                minLength: 36
+                pattern: >-
+                  ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                description: Identifier returned in the `Request-Id` response header.
+              required: true
           content:
             application/json:
               schema:
@@ -367,6 +530,7 @@ components:
         - thumbnail_image_id
     Error:
       type: object
+      description: Standard JSON error body.
       properties:
         code:
           $ref: '#/components/schemas/ErrorCode'
@@ -386,11 +550,11 @@ components:
         - 0 OK
 
             HTTP Mapping: 200 OK
-        - 1 OP_CANCELLED means the operation was cancelled, typically by the
+        - 1 CANCELLED means the operation was cancelled, typically by the
         caller.
 
             HTTP Mapping: 499 Client Closed Request
-        - 2 Unknown error. For example, this error may be returned when
+        - 2 UNKNOWN error. For example, this error may be returned when
             a 'Status' value received from another address space belongs to
             an error space that is not known in this address space. Also
             errors raised by APIs that do not return enough error information
@@ -417,7 +581,7 @@ components:
             Note to server developers: if a request is denied for an entire class
             of users, such as gradual feature rollout or undocumented allowlist,
             `NOT_FOUND` may be used. If a request is denied for some users within
-            a class of users, such as user-based access control, `PermissionDenied`
+            a class of users, such as user-based access control, `PERMISSION_DENIED`
             must be used.
 
             HTTP Mapping: 404 Not Found
@@ -429,14 +593,14 @@ components:
         - 7 PERMISSION_DENIED means that the caller does not have permission to
         execute the specified
             operation. `PERMISSION_DENIED` must not be used for rejections caused by
-            exhausting some resource (use `RESOURCE_EXHAUSTED` instead for those errors).
+            exhausting some resource (use `TOO_MANY_REQUESTS` instead for those errors).
             `PERMISSION_DENIED` must not be used if the caller can not be identified
-            (use `UNAUTHENTICATED` instead for those errors. This error code does not
+            (use `UNAUTHENTICATED` instead for those errors). This error code does not
             imply the request is valid or the requested entity exists or satisfies
             other pre-conditions.
 
             HTTP Mapping: 403 Forbidden
-        - 8  RESOURCE_EXHAUSTED means that some resource has been exhausted,
+        - 8  TOO_MANY_REQUESTS means that some resource has been exhausted,
         perhaps
              a per-user quota, or perhaps the entire file system is out of space.
 
@@ -479,7 +643,7 @@ components:
              `OUT_OF_RANGE` if asked to read from an offset past the current
              file size.
 
-             There is a fair bit of overlap between `FAILED_PRECONDITION` and
+             There is significant overlap between `FAILED_PRECONDITION` and
              `OUT_OF_RANGE`. We recommend using `OUT_OF_RANGE` (the more specific
              error when it applies so that callers who are iterating through
              a space can easily look for an `OUT_OF_RANGE` error to detect when
@@ -491,7 +655,7 @@ components:
              or not supported/enabled in this service.
 
              HTTP Mapping: 501 Not Implemented
-        - 13 Internal error. This means that some invariants expected by the
+        - 13 INTERNAL_ERROR. This means that some invariants expected by the
              underlying system have been broken. This error code is reserved
              for serious errors.
 
@@ -500,13 +664,14 @@ components:
         is
              most likely a transient condition, which can be corrected by retrying
              with a backoff. Note that it is not always safe to retry
-             non-idemponent operations.
+             non-idempotent operations.
 
              See the guidelines above for deciding between `FAILED_PRECONDITION`,
              `OP_ABORTED`, and `UNAVAILABLE`.
 
              HTTP Mapping: 503 Service Unavailable
-        - 15 ILLEGAL_STATE means that unrecoverable data loss or corruption.
+        - 15 ILLEGAL_STATE means that unrecoverable data loss or corruption has
+        occurred.
 
              HTTP Mapping: 500 Internal Server Error
         - 16 UNAUTHENTICATED means that the request does not have valid
@@ -514,13 +679,15 @@ components:
              credentials for the operation.
 
             HTTP Mapping: 401 Unauthorized
+        - 17..28 are reserved for future use.
+
         - 29 ILLEGAL_ARG means that the arguments passed to a server-internal
-        operation is illegal.
+        operation are illegal.
 
              HTTP Mapping: 500 Internal Server Error
-        - 30 AUTHORIZATION_EXPIRED means a user's authorization expired, and it
-        is
-             needed to log-in again and reauthorize.
+        - 30 AUTHORIZATION_EXPIRED means that the user's authorization has
+        expired;
+             the user must log in again to reauthorize.
 
              HTTP Mapping: 401 Unauthorized
       enum:
@@ -624,3 +791,8 @@ components:
           format: int32
         third_party_id:
           type: string
+  securitySchemes:
+    smithy.api.httpBearerAuth:
+      type: http
+      description: HTTP Bearer authentication
+      scheme: Bearer

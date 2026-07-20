@@ -6,7 +6,7 @@
       "software.amazon.smithy:smithy-openapi:1.61.0",
       "software.amazon.smithy:smithy-openapi-traits:1.61.0",
       "software.amazon.smithy:smithy-aws-traits:1.61.0",
-      "com.github.ikonglong:smithy-common:0.1.0"
+      "com.github.ikonglong:smithy-common:0.2.1"
     ],
     "repositories": [
       {

@@ -7,6 +7,7 @@ namespace example
 use smithytranslate#contentType
 use common#OperationErrors
 use common#PagingParams
+use common#CommonOutput
 use smithy.api#idempotent
 
 @readonly
@@ -14,6 +15,7 @@ use smithy.api#idempotent
 @tags([
     "Character"
 ])
+@auth([])
 operation ListCharacters with [OperationErrors] {
     input := with [PagingParams] {
         /// Optional gender filter
@@ -44,7 +46,7 @@ operation ListCharacters with [OperationErrors] {
         @httpQuery("tags")
         tags: StringList
     }
-    output := {
+    output := with [CommonOutput] {
         @httpPayload
         @required
         @contentType("application/json")
@@ -63,7 +65,7 @@ operation GetCharacter with [OperationErrors] {
         @required
         character_id: String
     }
-    output := {
+    output := with [CommonOutput] {
         @httpPayload
         @required
         @contentType("application/json")
@@ -82,7 +84,7 @@ operation CreateCharacter with [OperationErrors] {
         @contentType("application/json")
         body: CreateCharacterReq
     }
-    output := {
+    output := with [CommonOutput] {
         @httpPayload
         @required
         @contentType("application/json")
@@ -106,7 +108,7 @@ operation UpdateCharacter with [OperationErrors] {
         @contentType("application/json")
         body: UpdateCharacterReq
     }
-    output := {
+    output := with [CommonOutput] {
         @httpPayload
         @required
         @contentType("application/json")
